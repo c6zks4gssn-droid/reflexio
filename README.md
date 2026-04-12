@@ -9,7 +9,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/reflexio-client)](https://pypi.org/project/reflexio-client/)
 
-[Quick Start](#quick-start) · [Features](#features) · [SDK](#sdk-usage) · [Architecture](#architecture) · [Docs](https://www.reflexio.ai/docs) · [Contributing](#contributing)
+[Quick Start](#quick-start) · [Features](#features) · [SDK](#sdk-usage) · [CLI](reflexio/cli/README.md) · [Architecture](#architecture) · [Docs](https://www.reflexio.ai/docs) · [Contributing](#contributing)
 
 </div>
 
@@ -44,7 +44,7 @@ Publish conversations from your agent, and Reflexio closes the self-improvement 
 ## Demo
 
 <p align="center">
-  <img src="docs/images/reflexio_example.gif" width="800px" alt="Reflexio Demo">
+  <img src="docs/images/reflexio_example.gif" width="800px" alt="Reflexio example experience">
 </p>
 
 ## Quick Start
@@ -84,7 +84,27 @@ Once running, open **[http://localhost:8082](http://localhost:8082)** to interac
   <img src="docs/images/doc_website.png" width="800px" alt="Reflexio Doc Website">
 </p>
 
-### Publish your first interaction
+### Try it in 30 seconds (CLI)
+
+Reflexio ships a first-class CLI — the fastest way to see the loop end-to-end with no code. Publish a real multi-turn conversation where the user **corrects** the agent (that's the signal Reflexio learns from), then search for what was extracted:
+
+```shell
+uv run reflexio publish --user-id alice --wait --data '{
+  "interactions": [
+    {"role": "user",      "content": "Deploy the new service."},
+    {"role": "assistant", "content": "Starting deployment to us-east-1..."},
+    {"role": "user",      "content": "Wait — we never deploy production to us-east-1. Always use us-west-2."},
+    {"role": "assistant", "content": "Understood. Switching to us-west-2."}
+  ]
+}'
+
+# Search the extracted profiles and playbooks
+uv run reflexio search "deployment region"
+```
+
+One conversation, two artifacts: a user profile (`production region is us-west-2`) and an agent playbook (`confirm region before deploying`). See the [CLI reference](reflexio/cli/README.md) for all input modes (inline JSON, `--file`, `--stdin`) and the full command list.
+
+### Integrate with the Python SDK
 
 ```python
 import reflexio
@@ -93,13 +113,17 @@ client = reflexio.ReflexioClient(
     url_endpoint="http://localhost:8081/"
 )
 
-# Publish an agent conversation
+# Publish a multi-turn conversation where the user corrects the agent —
+# Reflexio extracts a profile ("prod region = us-west-2") and a playbook
+# ("confirm region before deploying").
 client.publish_interaction(
     request_id="req-001",
-    user_id="user-123",
+    user_id="alice",
     interactions=[
-        reflexio.Interaction(role="user", content="How do I reset my password?"),
-        reflexio.Interaction(role="assistant", content="Go to Settings > Security > Reset Password."),
+        reflexio.Interaction(role="user",      content="Deploy the new service."),
+        reflexio.Interaction(role="assistant", content="Starting deployment to us-east-1..."),
+        reflexio.Interaction(role="user",      content="Wait — we never deploy production to us-east-1. Always use us-west-2."),
+        reflexio.Interaction(role="assistant", content="Understood. Switching to us-west-2."),
     ],
 )
 ```
@@ -181,7 +205,7 @@ await client.publish_interaction(
 
 # Search profiles
 profiles = await client.search_profiles(
-    reflexio.SearchUserProfileRequest(query="password reset")
+    reflexio.SearchUserProfileRequest(query="deployment region preference")
 )
 
 # Search agent playbooks

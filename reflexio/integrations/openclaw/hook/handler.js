@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -83,6 +83,52 @@ function getSessionId(event) {
 		);
 	}
 	return _fallbackSessionId;
+}
+
+// ---------------------------------------------------------------------------
+// User ID resolution — multi-agent instance support
+// ---------------------------------------------------------------------------
+
+let _openclawConfig = null; // cached after first read
+
+function resolveUserId(event) {
+	// 1. Explicit env override — highest priority
+	if (process.env.REFLEXIO_USER_ID) return process.env.REFLEXIO_USER_ID;
+
+	// 2. Extract agentId from sessionKey (format: agent:<agentId>:<key>)
+	const sessionKey = event.context?.sessionKey ?? "";
+	const sessionMatch = sessionKey.match(/^agent:([^:]+):/);
+	if (sessionMatch) return sessionMatch[1];
+
+	// 3. Read ~/.openclaw/openclaw.json (JSON5 — strip comments before parsing)
+	if (_openclawConfig === null) {
+		try {
+			const configPath = join(homedir(), ".openclaw", "openclaw.json");
+			const raw = readFileSync(configPath, "utf-8");
+			// Strip single-line (//) and multi-line (/* */) comments
+			const stripped = raw
+				.replace(/\/\/[^\n]*/g, "")
+				.replace(/\/\*[\s\S]*?\*\//g, "");
+			_openclawConfig = JSON.parse(stripped);
+		} catch {
+			_openclawConfig = {}; // cache failure so we don't retry every call
+		}
+	}
+	const agents = _openclawConfig?.agents;
+	if (agents) {
+		// Try agents.defaults first, then first entry in agents.list[]
+		if (agents.defaults && typeof agents.defaults === "string") {
+			return agents.defaults;
+		}
+		if (Array.isArray(agents.list) && agents.list.length > 0) {
+			const first = agents.list[0];
+			if (first && typeof first === "object" && first.name) return first.name;
+			if (typeof first === "string") return first;
+		}
+	}
+
+	// 4. Backward-compatible fallback
+	return "openclaw";
 }
 
 // ---------------------------------------------------------------------------
@@ -170,9 +216,10 @@ function publishSession(db, sessionId, userId, agentVersion) {
  * Main hook dispatcher for Reflexio-OpenClaw integration.
  *
  * Events handled:
- *   agent:bootstrap  - Inject user profile + retry unpublished sessions
- *   message:sent     - Buffer turn to SQLite + incremental publish
- *   command:stop     - Flush remaining unpublished turns to Reflexio
+ *   agent:bootstrap   - Inject user profile + retry unpublished sessions
+ *   message:received  - Search Reflexio before agent responds
+ *   message:sent      - Buffer turn to SQLite + incremental publish
+ *   command:stop      - Flush remaining unpublished turns to Reflexio
  */
 export default async function reflexioHook(event) {
 	// Skip sub-agent sessions to avoid recursion (guards all event types)
@@ -184,6 +231,8 @@ export default async function reflexioHook(event) {
 	switch (eventKey) {
 		case "agent:bootstrap":
 			return handleBootstrap(event);
+		case "message:received":
+			return handleSearchBeforeResponse(event);
 		case "message:sent":
 			return handleMessageSent(event);
 		case "command:stop":
@@ -199,7 +248,7 @@ function handleBootstrap(event) {
 	const workspaceDir = event.context?.workspaceDir;
 	if (!workspaceDir) return;
 
-	const userId = process.env.REFLEXIO_USER_ID || "openclaw";
+	const userId = resolveUserId(event);
 	const agentVersion = process.env.REFLEXIO_AGENT_VERSION || "openclaw-agent";
 	const currentSessionId = getSessionId(event);
 
@@ -284,6 +333,41 @@ function handleBootstrap(event) {
 }
 
 // ---------------------------------------------------------------------------
+// Message received: search Reflexio before the agent responds
+// ---------------------------------------------------------------------------
+
+const TRIVIAL_RESPONSE_RE = /^(yes|no|ok|sure|thanks|y|n)$/i;
+
+function handleSearchBeforeResponse(event) {
+	const prompt = event.context?.userMessage;
+	if (!prompt || prompt.length < 5) return;
+	if (TRIVIAL_RESPONSE_RE.test(prompt.trim())) return;
+
+	try {
+		const userId = resolveUserId(event);
+		const result = execFileSync(
+			"reflexio",
+			["search", prompt, "--user-id", userId, "--top-k", "5"],
+			{ timeout: 5_000, encoding: "utf-8" },
+		);
+
+		if (result && result.trim() && Array.isArray(event.context?.bootstrapFiles)) {
+			event.context.bootstrapFiles.push({
+				name: "REFLEXIO_CONTEXT.md",
+				path: "REFLEXIO_CONTEXT.md",
+				content: result.trim(),
+				source: "hook:reflexio-context",
+			});
+			console.error(
+				`[reflexio] Injected search context for message (${result.trim().length} chars)`,
+			);
+		}
+	} catch (err) {
+		console.error(`[reflexio] Per-message search failed: ${err.message}`);
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Message sent: buffer turn + incremental publish every BATCH_SIZE exchanges
 // ---------------------------------------------------------------------------
 
@@ -315,7 +399,7 @@ function handleMessageSent(event) {
 			.get(sessionId);
 
 		if (count >= BATCH_SIZE * 2) {
-			const userId = process.env.REFLEXIO_USER_ID || "openclaw";
+			const userId = resolveUserId(event);
 			const agentVersion =
 				process.env.REFLEXIO_AGENT_VERSION || "openclaw-agent";
 			publishSession(db, sessionId, userId, agentVersion);
@@ -331,7 +415,7 @@ function handleMessageSent(event) {
 
 function handleSessionEnd(event) {
 	const sessionId = getSessionId(event);
-	const userId = process.env.REFLEXIO_USER_ID || "openclaw";
+	const userId = resolveUserId(event);
 	const agentVersion = process.env.REFLEXIO_AGENT_VERSION || "openclaw-agent";
 
 	try {

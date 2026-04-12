@@ -17,6 +17,7 @@ from reflexio.server.api_endpoints.request_context import RequestContext
 from reflexio.server.llm.litellm_client import LiteLLMClient
 from reflexio.server.services.deduplication_utils import (
     BaseDeduplicator,
+    format_dedup_timestamp,
     parse_item_id,
 )
 from reflexio.server.services.profile.profile_generation_service_utils import (
@@ -25,6 +26,11 @@ from reflexio.server.services.profile.profile_generation_service_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Backward-compat alias — existing unit tests import this name from this
+# module. Delegates to the shared helper in deduplication_utils.
+_format_profile_timestamp = format_dedup_timestamp
 
 
 # ===============================
@@ -158,8 +164,9 @@ class ProfileDeduplicator(BaseDeduplicator):
                 else "unknown"
             )
             source = profile.source or "unknown"
+            modified_date = _format_profile_timestamp(profile.last_modified_timestamp)
             lines.append(
-                f'[{prefix}-{idx}] Content: "{profile.content}" | TTL: {ttl} | Source: {source}'
+                f'[{prefix}-{idx}] Content: "{profile.content}" | TTL: {ttl} | Source: {source} | Last Modified: {modified_date}'
             )
         return "\n".join(lines)
 

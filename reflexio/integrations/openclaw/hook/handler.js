@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -132,6 +132,46 @@ function resolveUserId(event) {
 }
 
 // ---------------------------------------------------------------------------
+// Aggregation trigger — fire-and-forget after successful publish
+// ---------------------------------------------------------------------------
+
+function triggerAggregationIfNeeded(agentVersion) {
+	const flagFile = join(homedir(), ".reflexio", "logs", ".aggregation-running");
+
+	// Skip if aggregation is already running (flag < 5 min old)
+	try {
+		const stat = statSync(flagFile);
+		if (Date.now() - stat.mtimeMs < 5 * 60 * 1000) {
+			console.error("[reflexio] Aggregation already running, skipping");
+			return;
+		}
+	} catch {
+		// Flag file doesn't exist — proceed
+	}
+
+	// Create flag and logs dir
+	const logsDir = join(homedir(), ".reflexio", "logs");
+	mkdirSync(logsDir, { recursive: true, mode: 0o700 });
+	writeFileSync(flagFile, String(Date.now()), { mode: 0o600 });
+
+	const child = spawn(
+		"reflexio",
+		["agent-playbooks", "aggregate", "--agent-version", agentVersion],
+		{ stdio: ["ignore", "ignore", "ignore"], detached: true },
+	);
+	child.on("close", () => {
+		try {
+			unlinkSync(flagFile);
+		} catch {}
+	});
+	child.unref();
+
+	console.error(
+		`[reflexio] Triggered aggregation for agent-version=${agentVersion}`,
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Shared publish logic — used by session end, incremental, and retry
 // ---------------------------------------------------------------------------
 
@@ -185,6 +225,7 @@ function publishSession(db, sessionId, userId, agentVersion) {
 					`[reflexio] Failed to mark turns as published: ${e.message}`,
 				);
 			}
+			triggerAggregationIfNeeded(agentVersion);
 		} else {
 			console.error(
 				`[reflexio] Publish failed (exit ${code}), incrementing retry count`,

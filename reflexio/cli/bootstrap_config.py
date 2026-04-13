@@ -126,13 +126,21 @@ def save_storage_to_config(
                 config.storage_config = StorageConfigSupabase(
                     url=url, key=key, db_url=db_url
                 )
-            # If creds are missing, keep existing storage_config (don't overwrite
-            # a valid StorageConfigSupabase with empty strings).
+            else:
+                # Creds missing — keep existing storage_config (don't overwrite
+                # a valid StorageConfigSupabase with empty strings).
+                logger.warning(
+                    "Supabase storage requested but credentials are missing "
+                    "(SUPABASE_URL, SUPABASE_KEY, SUPABASE_DB_URL). "
+                    "Keeping existing storage config."
+                )
         case "disk":
             env_dir = os.environ.get("LOCAL_STORAGE_PATH", "").strip()
             fallback_dir = str(_config_dir(base_dir).parent / "disk-storage")
             dir_path = env_dir or fallback_dir
             config.storage_config = StorageConfigDisk(dir_path=dir_path)
+        case _:
+            raise ValueError(f"Unknown storage type: {storage_type}")
 
     storage_obj.save_config(config)
 

@@ -10,10 +10,9 @@ import typer
 
 from reflexio.cli import run_services as run_mod
 from reflexio.cli import stop_services as stop_mod
+from reflexio.cli.bootstrap_config import _VALID_STORAGE_BACKENDS
 
 app = typer.Typer(help="Start and stop Reflexio services.")
-
-_VALID_STORAGE_BACKENDS = {"sqlite", "supabase", "disk"}
 
 
 def validate_storage_backend(storage: str | None) -> None:
@@ -69,10 +68,11 @@ def start(
 
     resolved = resolve_storage(storage)
     os.environ["REFLEXIO_STORAGE"] = resolved
-    save_storage_to_config(resolved)
 
-    # If user explicitly passed --storage, also persist to .env
+    # If user explicitly passed --storage, also persist to config and .env
     if storage is not None:
+        save_storage_to_config(resolved)
+
         from reflexio.cli.env_loader import get_env_path, set_env_var
 
         env_path = get_env_path()

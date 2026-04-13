@@ -97,11 +97,16 @@ def show_local(ctx: typer.Context) -> None:
     Args:
         ctx: Typer context with CliState in ctx.obj
     """
-    from reflexio.cli.bootstrap_config import load_storage_from_config, resolve_storage
+    from reflexio.cli.bootstrap_config import (
+        _DEFAULT_ORG_ID,
+        _config_dir,
+        load_storage_from_config,
+        resolve_storage,
+    )
 
     persisted = load_storage_from_config()
     resolved = resolve_storage(None)  # full resolution without CLI flag
-    config_path = Path.home() / ".reflexio" / "configs" / "config_self-host-org.json"
+    config_path = _config_dir() / f"config_{_DEFAULT_ORG_ID}.json"
     resolved_mode = "local" if resolved in ("sqlite", "disk") else "cloud"
 
     json_mode: bool = ctx.obj.json_mode

@@ -55,9 +55,7 @@ class TestResolveStorage:
         ):
             assert resolve_storage(None) == "supabase"
 
-    def test_config_wins_over_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_config_wins_over_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REFLEXIO_STORAGE", raising=False)
         with patch(
             "reflexio.cli.bootstrap_config.load_storage_from_config",
@@ -65,9 +63,7 @@ class TestResolveStorage:
         ):
             assert resolve_storage(None) == "disk"
 
-    def test_default_when_nothing_set(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_when_nothing_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REFLEXIO_STORAGE", raising=False)
         with patch(
             "reflexio.cli.bootstrap_config.load_storage_from_config",
@@ -84,9 +80,7 @@ class TestResolveStorage:
         assert resolve_storage("SUPABASE") == "supabase"
         assert resolve_storage("Disk") == "disk"
 
-    def test_env_var_case_insensitive(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_var_case_insensitive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REFLEXIO_STORAGE", "SUPABASE")
         with patch(
             "reflexio.cli.bootstrap_config.load_storage_from_config",
@@ -149,7 +143,10 @@ class TestSaveAndLoadStorage:
         """When supabase creds are missing, save_storage_to_config keeps existing storage_config."""
         # First save sqlite
         save_storage_to_config("sqlite", org_id="test-org", base_dir=str(tmp_path))
-        assert load_storage_from_config(org_id="test-org", base_dir=str(tmp_path)) == "sqlite"
+        assert (
+            load_storage_from_config(org_id="test-org", base_dir=str(tmp_path))
+            == "sqlite"
+        )
 
         # Now try saving supabase without creds — should preserve sqlite
         monkeypatch.delenv("SUPABASE_URL", raising=False)
@@ -191,13 +188,16 @@ class TestSaveAndLoadStorage:
         reloaded = storage_obj.load_config()
         assert reloaded.agent_context_prompt == "test context"
         assert len(reloaded.profile_extractor_configs) == 1
-        assert reloaded.profile_extractor_configs[0].extractor_name == "custom_extractor"
-        assert load_storage_from_config(org_id="test-org", base_dir=str(tmp_path)) == "disk"
+        assert (
+            reloaded.profile_extractor_configs[0].extractor_name == "custom_extractor"
+        )
+        assert (
+            load_storage_from_config(org_id="test-org", base_dir=str(tmp_path))
+            == "disk"
+        )
 
     def test_load_returns_none_when_no_file(self, tmp_path: Path) -> None:
-        result = load_storage_from_config(
-            org_id="nonexistent", base_dir=str(tmp_path)
-        )
+        result = load_storage_from_config(org_id="nonexistent", base_dir=str(tmp_path))
         assert result is None
 
     def test_load_returns_none_for_nonexistent_dir(self, tmp_path: Path) -> None:
@@ -246,8 +246,8 @@ class TestEnvFileWriteBack:
         assert 'REFLEXIO_STORAGE="sqlite"' in content
         assert 'JWT_SECRET_KEY="secret"' in content
 
-    def test_env_file_not_created_if_missing(self, tmp_path: Path) -> None:
-        """If .env doesn't exist, set_env_var creates it (expected behavior of env_loader)."""
+    def test_set_env_var_creates_file_if_absent(self, tmp_path: Path) -> None:
+        """If .env doesn't exist, set_env_var creates it and writes the variable."""
         from reflexio.cli.env_loader import set_env_var
 
         env_file = tmp_path / ".env"
@@ -348,9 +348,7 @@ class TestContainerSafety:
         )
         assert result is None
 
-    def test_env_var_wins_when_no_config(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_var_wins_when_no_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Container with REFLEXIO_STORAGE=supabase, no config file -> supabase."""
         monkeypatch.setenv("REFLEXIO_STORAGE", "supabase")
         with patch(

@@ -281,7 +281,7 @@ function publishSession(db, sessionId, userId, agentVersion) {
  *   message:sent      - Buffer turn to SQLite + incremental publish
  *   command:stop      - Flush remaining unpublished turns to Reflexio
  */
-export default async function reflexioHook(event) {
+export default async function reflexioHook(event: any) {
 	// Skip sub-agent sessions to avoid recursion (guards all event types)
 	const sessionKey = event.context?.sessionKey ?? "";
 	if (sessionKey.includes(":subagent:")) return;

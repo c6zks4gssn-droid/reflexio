@@ -86,6 +86,46 @@ def show(
         print(json.dumps(config_data, indent=2, default=str))
 
 
+@app.command(name="local")
+@handle_errors
+def show_local(ctx: typer.Context) -> None:
+    """Show locally persisted settings (no server required).
+
+    Reads the local config file and resolves the effective storage backend
+    using the priority chain: CLI flag > env var > config file > default.
+
+    Args:
+        ctx: Typer context with CliState in ctx.obj
+    """
+    from reflexio.cli.bootstrap_config import (
+        _DEFAULT_ORG_ID,
+        _config_dir,
+        load_storage_from_config,
+        resolve_storage,
+    )
+
+    persisted = load_storage_from_config()
+    resolved = resolve_storage(None)  # full resolution without CLI flag
+    config_path = _config_dir() / f"config_{_DEFAULT_ORG_ID}.json"
+    resolved_mode = "local" if resolved in ("sqlite", "disk") else "cloud"
+
+    json_mode: bool = ctx.obj.json_mode
+
+    data = {
+        "config_file": str(config_path),
+        "persisted_storage": persisted,
+        "resolved_storage": resolved,
+        "resolved_mode": resolved_mode,
+    }
+
+    if json_mode:
+        render(data, json_mode=True)
+    else:
+        print_info(f"Config file: {config_path}")
+        print_info(f"Persisted storage: {persisted or '(not set)'}")
+        print_info(f"Resolved storage:  {resolved} (mode: {resolved_mode})")
+
+
 @app.command(name="set")
 @handle_errors
 def set_config(

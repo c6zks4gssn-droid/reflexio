@@ -166,3 +166,65 @@ class TestConfigPull:
             )
         assert result.exit_code != 0
         assert not env_file.exists() or "SUPABASE" not in env_file.read_text()
+
+
+class TestConfigLocal:
+    """Tests for ``reflexio config local`` — reads local config, no server needed."""
+
+    _PATCH_LOAD = "reflexio.cli.bootstrap_config.load_storage_from_config"
+    _PATCH_RESOLVE = "reflexio.cli.bootstrap_config.resolve_storage"
+
+    def test_human_readable_output(self, runner: CliRunner, cli_app) -> None:
+        with (
+            patch(self._PATCH_LOAD, return_value="sqlite"),
+            patch(self._PATCH_RESOLVE, return_value="sqlite"),
+        ):
+            result = runner.invoke(cli_app, ["config", "local"])
+        assert result.exit_code == 0, result.output
+        assert "Persisted storage: sqlite" in result.output
+        assert "Resolved storage:  sqlite" in result.output
+        assert "mode: local" in result.output
+
+    def test_human_readable_no_persisted(self, runner: CliRunner, cli_app) -> None:
+        with (
+            patch(self._PATCH_LOAD, return_value=None),
+            patch(self._PATCH_RESOLVE, return_value="sqlite"),
+        ):
+            result = runner.invoke(cli_app, ["config", "local"])
+        assert result.exit_code == 0, result.output
+        assert "(not set)" in result.output
+
+    def test_json_mode(self, runner: CliRunner, cli_app) -> None:
+        with (
+            patch(self._PATCH_LOAD, return_value="supabase"),
+            patch(self._PATCH_RESOLVE, return_value="supabase"),
+        ):
+            result = runner.invoke(cli_app, ["--json", "config", "local"])
+        assert result.exit_code == 0, result.output
+        import json
+
+        envelope = json.loads(result.output)
+        assert envelope["ok"] is True
+        data = envelope["data"]
+        assert data["persisted_storage"] == "supabase"
+        assert data["resolved_storage"] == "supabase"
+        assert data["resolved_mode"] == "cloud"
+        assert "config_file" in data
+
+    def test_cloud_mode_for_supabase(self, runner: CliRunner, cli_app) -> None:
+        with (
+            patch(self._PATCH_LOAD, return_value="supabase"),
+            patch(self._PATCH_RESOLVE, return_value="supabase"),
+        ):
+            result = runner.invoke(cli_app, ["config", "local"])
+        assert result.exit_code == 0, result.output
+        assert "mode: cloud" in result.output
+
+    def test_local_mode_for_disk(self, runner: CliRunner, cli_app) -> None:
+        with (
+            patch(self._PATCH_LOAD, return_value="disk"),
+            patch(self._PATCH_RESOLVE, return_value="disk"),
+        ):
+            result = runner.invoke(cli_app, ["config", "local"])
+        assert result.exit_code == 0, result.output
+        assert "mode: local" in result.output

@@ -11,7 +11,6 @@ from urllib.parse import urljoin
 
 import aiohttp
 import requests
-from dotenv import load_dotenv
 
 from reflexio.defaults import DEFAULT_AGENT_VERSION
 from reflexio.models.api_schema.retriever_schema import (
@@ -47,9 +46,6 @@ from reflexio.models.api_schema.retriever_schema import (
     UpdateUserPlaybookResponse,
 )
 from reflexio.models.config_schema import SearchMode
-
-# Load environment variables from .env file
-load_dotenv()
 
 IS_TEST_ENV = os.environ.get("IS_TEST_ENV", "false").strip() == "true"
 

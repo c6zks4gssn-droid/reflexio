@@ -58,7 +58,7 @@ def _classify_http_error(exc: requests.HTTPError) -> CliError:
         return CliError(
             error_type="auth",
             message=f"Authentication failed (HTTP {status})",
-            hint="Run: reflexio auth login --api-key <key> --url <url>",
+            hint="Run: reflexio auth login --api-key <key> --server-url <url>",
             exit_code=EXIT_AUTH,
         )
     if status == 422:

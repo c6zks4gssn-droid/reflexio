@@ -22,6 +22,11 @@ def validate_storage_backend(storage: str | None) -> None:
     If *storage* is not None, validates it against known backends and sets
     the ``REFLEXIO_STORAGE`` environment variable.
 
+    .. deprecated::
+        Prefer :func:`reflexio.cli.bootstrap_config.resolve_storage` which
+        implements the full priority chain (CLI flag > env var > config > default)
+        and config file persistence.
+
     Args:
         storage: Storage backend name (e.g. ``"sqlite"``, ``"supabase"``),
             or None to skip validation.
@@ -42,8 +47,12 @@ def validate_storage_backend(storage: str | None) -> None:
 
 @app.command()
 def start(
-    backend_port: Annotated[int, typer.Option(help="Backend server port")] = 8081,
-    docs_port: Annotated[int, typer.Option(help="Docs server port")] = 8082,
+    backend_port: Annotated[
+        int | None, typer.Option(help="Backend server port (default: 8081)")
+    ] = None,
+    docs_port: Annotated[
+        int | None, typer.Option(help="Docs server port (default: 8082)")
+    ] = None,
     only: Annotated[
         str | None, typer.Option(help="Comma-separated services: backend,docs")
     ] = None,
@@ -52,12 +61,24 @@ def start(
     ] = False,
     storage: Annotated[
         str | None,
-        typer.Option(help="Data storage backend: sqlite (default) or supabase"),
+        typer.Option(help="Data storage backend: sqlite (default), supabase, or disk"),
     ] = None,
 ) -> None:
     """Start Reflexio services (backend, docs)."""
-    validate_storage_backend(storage)
-    # Bridge to existing argparse-based implementation
+    from reflexio.cli.bootstrap_config import resolve_storage, save_storage_to_config
+
+    resolved = resolve_storage(storage)
+    os.environ["REFLEXIO_STORAGE"] = resolved
+    save_storage_to_config(resolved)
+
+    # If user explicitly passed --storage, also persist to .env
+    if storage is not None:
+        from reflexio.cli.env_loader import get_env_path, set_env_var
+
+        env_path = get_env_path()
+        if env_path.exists():
+            set_env_var(env_path, "REFLEXIO_STORAGE", resolved)
+
     args = argparse.Namespace(
         backend_port=backend_port,
         docs_port=docs_port,
@@ -69,8 +90,12 @@ def start(
 
 @app.command()
 def stop(
-    backend_port: Annotated[int, typer.Option(help="Backend server port")] = 8081,
-    docs_port: Annotated[int, typer.Option(help="Docs server port")] = 8082,
+    backend_port: Annotated[
+        int | None, typer.Option(help="Backend server port (default: 8081)")
+    ] = None,
+    docs_port: Annotated[
+        int | None, typer.Option(help="Docs server port (default: 8082)")
+    ] = None,
     only: Annotated[
         str | None, typer.Option(help="Comma-separated services: backend,docs")
     ] = None,

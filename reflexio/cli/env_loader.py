@@ -95,10 +95,38 @@ def load_reflexio_env(
     for env_path in _ENV_SEARCH_PATHS:
         if env_path.exists():
             load_dotenv(dotenv_path=env_path)
+            # Auto-generate any missing secret keys into the existing .env
+            _backfill_missing_keys(env_path, auto_generate_keys or [])
             return env_path
 
     # No .env found — auto-create from bundled template
     return _create_default_env(package_data_module, auto_generate_keys or [])
+
+
+def _backfill_missing_keys(env_path: Path, keys: list[str]) -> None:
+    """Generate and write any missing secret keys into an existing .env file.
+
+    Called when ``load_reflexio_env`` finds a pre-existing .env (e.g. created
+    by ``setup init``) that may be missing keys that ``services start``
+    requires (like JWT_SECRET_KEY).
+
+    Args:
+        env_path: Path to the existing .env file.
+        keys: Env var names to check/generate.
+    """
+    import os
+
+    generated: list[str] = []
+    for key in keys:
+        if os.environ.get(key):
+            continue
+        token = secrets.token_hex(32)
+        set_env_var(env_path, key, token)
+        os.environ[key] = token
+        generated.append(key)
+    if generated:
+        sys.stdout.write(f"  Auto-generated missing keys: {', '.join(generated)}\n")
+        sys.stdout.flush()
 
 
 def _find_env_example(package_data_module: str) -> str | None:

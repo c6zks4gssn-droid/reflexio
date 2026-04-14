@@ -109,9 +109,9 @@ def doctor(ctx: typer.Context) -> None:
     checks.append(
         {
             "name": "python_version",
-            "status": "pass" if sys.version_info >= (3, 11) else "warn",
+            "status": "pass" if sys.version_info >= (3, 12) else "warn",
             "message": f"Python {py_version}",
-            "hint": None if sys.version_info >= (3, 11) else "Python 3.11+ recommended",
+            "hint": None if sys.version_info >= (3, 12) else "Python 3.12+ recommended",
         }
     )
 

@@ -97,6 +97,12 @@ from reflexio.models.api_schema.service_schemas import (
     UserProfile,
     WhoamiResponse,
 )
+from reflexio.models.api_schema.domain.entities import (
+    UpgradeProfilesRequest,
+    UpgradeProfilesResponse,
+    UpgradeUserPlaybooksRequest,
+    UpgradeUserPlaybooksResponse,
+)
 from reflexio.models.config_schema import Config
 
 from .cache import InMemoryCache
@@ -1712,6 +1718,58 @@ class ReflexioClient:
             return self._rerun_profile_generation_sync(req)
         self._fire_and_forget(self._rerun_profile_generation_async, req)
         return None
+
+    def upgrade_profiles(
+        self,
+        *,
+        user_id: str | None = None,
+        only_affected_users: bool = True,
+    ) -> UpgradeProfilesResponse:
+        """Promote PENDING profiles to CURRENT, archive old CURRENT, delete old ARCHIVED.
+
+        Args:
+            user_id: Specific user ID to upgrade. If None, upgrades all users.
+            only_affected_users: If True, only upgrade users who have pending profiles.
+
+        Returns:
+            UpgradeProfilesResponse: Counts of archived, promoted, and deleted profiles.
+        """
+        req = UpgradeProfilesRequest(
+            user_id=user_id,
+            only_affected_users=only_affected_users,
+        )
+        response = self._make_request(
+            "POST",
+            "/api/upgrade_all_profiles",
+            json=req.model_dump(),
+        )
+        return UpgradeProfilesResponse(**response)
+
+    def upgrade_user_playbooks(
+        self,
+        *,
+        agent_version: str | None = None,
+        playbook_name: str | None = None,
+    ) -> UpgradeUserPlaybooksResponse:
+        """Promote PENDING user playbooks to CURRENT, archive old CURRENT, delete old ARCHIVED.
+
+        Args:
+            agent_version: Filter by agent version. If None, upgrades all versions.
+            playbook_name: Filter by playbook name. If None, upgrades all playbooks.
+
+        Returns:
+            UpgradeUserPlaybooksResponse: Counts of archived, promoted, and deleted playbooks.
+        """
+        req = UpgradeUserPlaybooksRequest(
+            agent_version=agent_version,
+            playbook_name=playbook_name,
+        )
+        response = self._make_request(
+            "POST",
+            "/api/upgrade_all_user_playbooks",
+            json=req.model_dump(),
+        )
+        return UpgradeUserPlaybooksResponse(**response)
 
     async def _manual_profile_generation_async(
         self, request: ManualProfileGenerationRequest

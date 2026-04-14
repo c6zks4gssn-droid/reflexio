@@ -1,4 +1,4 @@
-"""Agent playbook management commands (list, search, delete, aggregate, regenerate)."""
+"""Agent playbook management commands (list, search, delete, aggregate)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from reflexio.cli.output import (
     print_info,
     render,
 )
-from reflexio.cli.state import get_client, require_agent_version
+from reflexio.cli.state import get_client
 
 app = typer.Typer(help="Manage agent playbooks.")
 
@@ -269,9 +269,9 @@ def add(
 @handle_errors
 def update(
     ctx: typer.Context,
-    id: Annotated[  # noqa: A002
+    playbook_id: Annotated[
         int,
-        typer.Option("--id", help="Agent playbook ID to update"),
+        typer.Option("--playbook-id", help="Agent playbook ID to update"),
     ],
     content: Annotated[
         str | None,
@@ -295,7 +295,7 @@ def update(
 
     Args:
         ctx: Typer context with CliState in ctx.obj
-        id: Agent playbook ID to update
+        playbook_id: Agent playbook ID to update
         content: New content text
         playbook_name: New playbook category name
     """
@@ -308,7 +308,7 @@ def update(
 
     client = get_client(ctx)
     resp = client.update_agent_playbook(
-        agent_playbook_id=id,
+        agent_playbook_id=playbook_id,
         content=content,
         playbook_name=playbook_name,
     )
@@ -318,16 +318,16 @@ def update(
         render(resp, json_mode=True)
     else:
         raise_if_failed(resp, default="Failed to update agent playbook")
-        print_info(f"Agent playbook {id} updated")
+        print_info(f"Agent playbook {playbook_id} updated")
 
 
 @app.command(name="update-status")
 @handle_errors
 def update_status(
     ctx: typer.Context,
-    id: Annotated[  # noqa: A002
+    playbook_id: Annotated[
         int,
-        typer.Option("--id", help="Agent playbook ID"),
+        typer.Option("--playbook-id", help="Agent playbook ID"),
     ],
     status: Annotated[
         str,
@@ -346,7 +346,7 @@ def update_status(
 
     Args:
         ctx: Typer context with CliState in ctx.obj
-        id: Agent playbook ID
+        playbook_id: Agent playbook ID
         status: New approval status (pending/approved/rejected)
     """
     pb_status = _validate_playbook_status(status)
@@ -361,7 +361,7 @@ def update_status(
 
     client = get_client(ctx)
     resp = client.update_agent_playbook_status(
-        agent_playbook_id=id,
+        agent_playbook_id=playbook_id,
         playbook_status=pb_status,
     )
 
@@ -370,27 +370,27 @@ def update_status(
         render(resp, json_mode=True)
     else:
         raise_if_failed(resp, default="Failed to update agent playbook status")
-        print_info(f"Agent playbook {id} status set to {pb_status.value}")
+        print_info(f"Agent playbook {playbook_id} status set to {pb_status.value}")
 
 
 @app.command()
 @handle_errors
 def delete(
     ctx: typer.Context,
-    id: Annotated[  # noqa: A002
+    playbook_id: Annotated[
         str,
-        typer.Option("--id", help="Agent playbook ID"),
+        typer.Option("--playbook-id", help="Agent playbook ID"),
     ],
 ) -> None:
     """Delete an agent playbook by ID.
 
     Args:
         ctx: Typer context with CliState in ctx.obj
-        id: Agent playbook ID to delete
+        playbook_id: Agent playbook ID to delete
     """
     client = get_client(ctx)
     resp = client.delete_agent_playbook(
-        agent_playbook_id=int(id),
+        agent_playbook_id=int(playbook_id),
         wait_for_response=True,
     )
 
@@ -398,7 +398,7 @@ def delete(
     if json_mode:
         render(resp, json_mode=True)
     else:
-        print_info(f"Deleted agent playbook {id}")
+        print_info(f"Deleted agent playbook {playbook_id}")
 
 
 @app.command(name="delete-all")
@@ -529,45 +529,3 @@ def aggregate(
                 print_info("  Done")
             else:
                 print_info("  Started")
-
-
-@app.command()
-@handle_errors
-def regenerate(
-    ctx: typer.Context,
-    wait: Annotated[
-        bool,
-        typer.Option("--wait", help="Wait for regeneration to complete"),
-    ] = False,
-    agent_version: Annotated[
-        str | None,
-        typer.Option("--agent-version", help="Agent version to regenerate"),
-    ] = None,
-) -> None:
-    """Rerun playbook generation for an agent version.
-
-    Args:
-        ctx: Typer context with CliState in ctx.obj
-        wait: If True, wait for regeneration to complete
-        agent_version: Optional agent version filter
-    """
-    client = get_client(ctx)
-    # Regenerate targets a specific agent_version — silently falling
-    # back to DEFAULT_AGENT_VERSION would re-run the wrong pool of
-    # playbooks. Require an explicit value (flag, env, or config).
-    resolved_version = require_agent_version(
-        agent_version, command_hint="playbook regeneration"
-    )
-
-    resp = client.rerun_playbook_generation(
-        agent_version=resolved_version,
-        wait_for_response=wait,
-    )
-
-    json_mode: bool = ctx.obj.json_mode
-    if json_mode:
-        render(resp, json_mode=True)
-    elif wait:
-        print_info("Playbook regeneration complete")
-    else:
-        print_info("Playbook regeneration started")

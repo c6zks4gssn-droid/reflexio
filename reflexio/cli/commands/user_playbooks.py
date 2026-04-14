@@ -1,4 +1,4 @@
-"""User playbook management commands (list, search, add, delete)."""
+"""User playbook management commands (list, search, add, delete, regenerate)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from reflexio.cli.output import (
     print_user_playbooks,
     render,
 )
-from reflexio.cli.state import get_client
+from reflexio.cli.state import get_client, require_agent_version
 
 app = typer.Typer(help="Manage user playbooks.")
 
@@ -214,9 +214,9 @@ def add(
 @handle_errors
 def update(
     ctx: typer.Context,
-    id: Annotated[  # noqa: A002
+    playbook_id: Annotated[
         int,
-        typer.Option("--id", help="User playbook ID to update"),
+        typer.Option("--playbook-id", help="User playbook ID to update"),
     ],
     content: Annotated[
         str | None,
@@ -238,7 +238,7 @@ def update(
 
     Args:
         ctx: Typer context with CliState in ctx.obj
-        id: User playbook ID to update
+        playbook_id: User playbook ID to update
         content: New content text
         playbook_name: New playbook category name
     """
@@ -251,7 +251,7 @@ def update(
 
     client = get_client(ctx)
     resp = client.update_user_playbook(
-        user_playbook_id=id,
+        user_playbook_id=playbook_id,
         content=content,
         playbook_name=playbook_name,
     )
@@ -261,27 +261,27 @@ def update(
         render(resp, json_mode=True)
     else:
         raise_if_failed(resp, default="Failed to update user playbook")
-        print_info(f"User playbook {id} updated")
+        print_info(f"User playbook {playbook_id} updated")
 
 
 @app.command()
 @handle_errors
 def delete(
     ctx: typer.Context,
-    id: Annotated[  # noqa: A002
+    playbook_id: Annotated[
         str,
-        typer.Option("--id", help="User playbook ID"),
+        typer.Option("--playbook-id", help="User playbook ID"),
     ],
 ) -> None:
     """Delete a user playbook by ID.
 
     Args:
         ctx: Typer context with CliState in ctx.obj
-        id: User playbook ID to delete
+        playbook_id: User playbook ID to delete
     """
     client = get_client(ctx)
     resp = client.delete_user_playbook(
-        user_playbook_id=int(id),
+        user_playbook_id=int(playbook_id),
         wait_for_response=True,
     )
 
@@ -289,7 +289,7 @@ def delete(
     if json_mode:
         render(resp, json_mode=True)
     else:
-        print_info(f"Deleted user playbook {id}")
+        print_info(f"Deleted user playbook {playbook_id}")
 
 
 @app.command(name="delete-all")
@@ -324,3 +324,59 @@ def delete_all(
         render(resp, json_mode=True)
     else:
         print_info("All user playbooks deleted")
+
+
+@app.command()
+@handle_errors
+def regenerate(
+    ctx: typer.Context,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait", help="Wait for regeneration to complete"),
+    ] = False,
+    agent_version: Annotated[
+        str | None,
+        typer.Option(
+            "--agent-version", help="Agent version to regenerate playbooks for"
+        ),
+    ] = None,
+) -> None:
+    """Re-extract user playbooks from published interactions.
+
+    Re-runs the playbook extraction pipeline over all interactions for the
+    given agent version, producing fresh user playbooks.
+
+    Args:
+        ctx: Typer context with CliState in ctx.obj
+        wait: If True, wait for regeneration to complete
+        agent_version: Agent version to regenerate (required)
+    """
+    client = get_client(ctx)
+    resolved_version = require_agent_version(
+        agent_version, command_hint="user-playbook regeneration"
+    )
+
+    resp = client.rerun_playbook_generation(
+        agent_version=resolved_version,
+        wait_for_response=wait,
+    )
+
+    # When waiting, auto-promote PENDING user playbooks to CURRENT so
+    # they're immediately visible in `list` output.
+    promoted = 0
+    if wait:
+        try:
+            upgrade_resp = client.upgrade_user_playbooks(
+                agent_version=resolved_version,
+            )
+            promoted = upgrade_resp.user_playbooks_promoted
+        except Exception:
+            print_info("Warning: promotion failed, but regeneration succeeded")
+
+    json_mode: bool = ctx.obj.json_mode
+    if json_mode:
+        render(resp, json_mode=True)
+    elif wait:
+        print_info(f"Playbook regeneration complete ({promoted} playbook(s) promoted)")
+    else:
+        print_info("Playbook regeneration started")

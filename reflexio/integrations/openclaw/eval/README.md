@@ -1,5 +1,7 @@
 # Reflexio-OpenClaw Integration Eval
 
+> Part of the [OpenClaw Integration](../README.md). See also the [Reflexio Code Map](../../../README.md) for project-wide context.
+
 End-to-end evaluation suite for the Reflexio-OpenClaw integration. It starts a
 throwaway local Reflexio server (SQLite, temp directory), exercises each scenario,
 and reports pass/fail with timing.
@@ -96,3 +98,8 @@ Available actions and their required params:
 
 Steps execute sequentially; the first failure stops the scenario.  State (last
 search results, last exit code) resets between scenarios.
+
+## See Also
+
+- [OpenClaw Integration README](../README.md) -- parent integration overview
+- [Code Map (root README)](../../../README.md) -- high-level overview of all Reflexio components

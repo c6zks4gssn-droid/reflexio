@@ -8,9 +8,11 @@
 [![Python >= 3.12](https://img.shields.io/badge/python-%3E%3D3.12-blue)](https://www.python.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/reflexio-client)](https://pypi.org/project/reflexio-client/)
+[![Downloads](https://static.pepy.tech/badge/reflexio-ai/month)](https://pepy.tech/project/reflexio-ai)
+[![GitHub stars](https://img.shields.io/github/stars/ReflexioAI/reflexio)](https://github.com/ReflexioAI/reflexio/stargazers)
 [![Search p50 57ms](https://img.shields.io/badge/search-57ms%20p50-brightgreen)](reflexio/benchmarks/retrieval_latency/results/report.md)
 
-[Quick Start](#quick-start) · [Features](#features) · [SDK](#sdk-usage) · [CLI](reflexio/cli/README.md) · [Architecture](#architecture) · [Docs](https://www.reflexio.ai/docs) · [Contributing](#contributing)
+[Quick Start](#quick-start) · [Features](#features) · [Integrations](#integrations) · [SDK](#sdk-usage) · [CLI](reflexio/cli/README.md) · [Architecture](#architecture) · [Docs](https://www.reflexio.ai/docs) · [Contributing](#contributing)
 
 </div>
 
@@ -41,6 +43,29 @@ Publish conversations from your agent, and Reflexio closes the self-improvement 
 - **AI First Self-Optimization**: Agents autonomously reflect, learn, and improve — less human-in-the-loop, more compounding gains.
 
 > **For developers**: See [developer.md](developer.md) for project structure, environment setup, testing, and coding guidelines.
+
+## Table of Contents
+
+- [What Makes Reflexio Different](#what-makes-reflexio-different)
+- [Demo](#demo)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Integrations](#integrations)
+- [SDK Usage](#sdk-usage)
+- [Architecture](#architecture)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Star History](#star-history)
+- [License](#license)
+
+## What Makes Reflexio Different
+
+| Approach | Learns from conversations | No retraining | Per-user personalization | Works with any LLM |
+|----------|:---:|:---:|:---:|:---:|
+| Fine-tuning | - | - | - | - |
+| RAG | - | Yes | - | Yes |
+| Prompt engineering | - | Yes | - | Yes |
+| **Reflexio** | **Yes** | **Yes** | **Yes** | **Yes** |
 
 ## Demo
 
@@ -230,6 +255,14 @@ client.set_config(reflexio.SetConfigRequest(
 ))
 ```
 
+## Integrations
+
+Reflexio integrates with popular AI agent frameworks out of the box:
+
+- **[Claude Code](reflexio/integrations/claude_code/README.md)** -- Hook into Claude Code sessions to automatically capture corrections and preferences.
+- **[LangChain](reflexio/integrations/langchain/README.md)** -- Drop-in callbacks for LangChain chains and agents.
+- **[OpenClaw](reflexio/integrations/openclaw/README.md)** -- Native integration with the OpenClaw agent framework.
+
 ## Architecture
 
 ```
@@ -251,6 +284,10 @@ For comprehensive guides, examples, and API reference, visit the **[Reflexio Doc
 ## Contributing
 
 We welcome contributions! Please see [developer.md](developer.md) for guidelines.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ReflexioAI/reflexio&type=Date)](https://star-history.com/#ReflexioAI/reflexio&Date)
 
 ## License
 

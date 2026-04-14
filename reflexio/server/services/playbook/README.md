@@ -1,6 +1,8 @@
 # Playbook Service
 Description: Playbook extraction, aggregation, and deduplication pipeline
 
+> Part of the [Reflexio Server](../../README.md). See also the [Prompt Bank](../../prompt/prompt_bank/README.md) for prompt template details.
+
 ## Main Entry Points
 
 - **Service Orchestrator**: `playbook_generation_service.py` - Manages playbook extraction lifecycle (regular, rerun, manual modes)
@@ -72,3 +74,8 @@ Deduplicates newly extracted playbooks against existing playbooks in the databas
 | `StructuredPlaybookContent` | Output from playbook extraction prompt |
 | `PlaybookGenerationRequest` | Request dataclass for playbook extraction |
 | `PlaybookAggregatorRequest` | Request dataclass for playbook aggregation |
+
+## See Also
+
+- [Server README](../../README.md) -- FastAPI backend component overview
+- [Prompt Bank README](../../prompt/prompt_bank/README.md) -- versioned prompt template system used by playbook prompts

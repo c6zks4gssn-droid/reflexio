@@ -1,5 +1,12 @@
 # Reflexio LangChain Integration
 
+[![PyPI version](https://img.shields.io/pypi/v/reflexio-ai)](https://pypi.org/project/reflexio-ai/)
+[![LangChain compatibility](https://img.shields.io/badge/langchain--core-%3E%3D0.3.0-blue)](https://python.langchain.com/)
+[![Python version](https://img.shields.io/pypi/pyversions/reflexio-ai)](https://pypi.org/project/reflexio-ai/)
+[![License](https://img.shields.io/pypi/l/reflexio-ai)](https://github.com/reflexio-ai/reflexio/blob/main/LICENSE)
+
+[Reflexio](../../../../README.md) is an open-source memory layer that helps AI agents learn from past interactions. It extracts behavioral playbooks and user profiles from conversations, then retrieves relevant context before each response -- so agents improve over time without retraining.
+
 Connect LangChain agents to Reflexio for automatic self-improvement. Capture conversations, retrieve learned context, and inject behavioral guidelines — all through standard LangChain interfaces.
 
 ## Installation
@@ -158,14 +165,29 @@ agent.invoke(
 
 ## Architecture
 
-```
-LangChain Agent
-├── ReflexioChatModel (middleware)     # Injects context before each LLM call
-│   └── Reflexio Search API            #   ← fetches playbooks, profiles
-├── ReflexioSearchTool (tool)          # Agent can query Reflexio on-demand
-├── ReflexioRetriever (retriever)      # RAG-style document retrieval
-└── ReflexioCallbackHandler (callback) # Captures full conversation
-    └── Reflexio Publish API           #   ← sends interactions for learning
+```mermaid
+flowchart LR
+    subgraph "LangChain Agent"
+        CM["ReflexioChatModel\n(middleware)"]
+        ST["ReflexioSearchTool\n(tool)"]
+        RT["ReflexioRetriever\n(retriever)"]
+        CB["ReflexioCallbackHandler\n(callback)"]
+    end
+
+    subgraph "Reflexio Server"
+        SA["Search API"]
+        PA["Publish API"]
+    end
+
+    CM -->|"fetch playbooks & profiles"| SA
+    ST -->|"on-demand query"| SA
+    RT -->|"RAG document retrieval"| SA
+    CB -->|"send interactions for learning"| PA
 ```
 
 All LangChain-dependent classes are lazy-imported. The module loads without `langchain-core` installed — an `ImportError` with install instructions is raised only when a LangChain class is accessed.
+
+## Further Reading
+
+- [Reflexio main README](../../../../README.md)
+- [Python SDK documentation](../../../client_dist/README.md)

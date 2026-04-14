@@ -2,6 +2,39 @@
 
 `reflexio` is a first-class CLI for running the Reflexio service, publishing interactions, exploring extracted profiles and playbooks, and wiring results into your own agent. Every command is also runnable as `python -m reflexio ...`.
 
+## Table of Contents
+
+- [Install & invoke](#install--invoke)
+- [Global flags](#global-flags)
+- [Quick Reference](#quick-reference)
+- [Services](#services)
+- [Publishing interactions](#publishing-interactions)
+- [Search & context](#search--context)
+- [Interactions](#interactions)
+- [User profiles](#user-profiles)
+- [Agent playbooks](#agent-playbooks)
+- [User playbooks](#user-playbooks)
+- [Config](#config)
+- [Auth](#auth)
+- [Diagnostics](#diagnostics)
+- [Raw API access](#raw-api-access)
+- [Common Workflows](#common-workflows)
+- [Getting help](#getting-help)
+
+## Quick Reference
+
+Most common commands at a glance:
+
+| Task | Command |
+|------|---------|
+| Start server | `reflexio services start` |
+| Publish conversation | `reflexio publish --user-id USER --data '...'` |
+| Search everything | `reflexio search "query"` |
+| List profiles | `reflexio user-profiles list --user-id USER` |
+| List playbooks | `reflexio agent-playbooks list` |
+| Check health | `reflexio status check` |
+| Stop server | `reflexio services stop` |
+
 ## Install & invoke
 
 The CLI ships with the `reflexio` package. After `uv sync`:
@@ -194,6 +227,42 @@ Escape hatch for calling any endpoint directly. Supports `GET`, `POST`, `DELETE`
 uv run reflexio api GET /health
 uv run reflexio api POST /api/get_agent_playbooks --data '{"agent_version": "v1"}'
 uv run reflexio api POST /api/set_config --data @config.json
+```
+
+## Common Workflows
+
+A typical end-to-end workflow: publish a conversation, verify that Reflexio extracted the right data, then browse the results.
+
+### 1. Start services
+
+```shell
+uv run reflexio services start
+```
+
+### 2. Publish a conversation
+
+```shell
+uv run reflexio publish --user-id alice --wait --data '{
+  "interactions": [
+    {"role": "user",      "content": "Always use dark mode in the dashboard."},
+    {"role": "assistant", "content": "Noted — I will default to dark mode for you."}
+  ]
+}'
+```
+
+### 3. Search to verify extraction
+
+```shell
+uv run reflexio search "dark mode"
+```
+
+You should see a profile entry reflecting the user's preference.
+
+### 4. Browse profiles and playbooks
+
+```shell
+uv run reflexio user-profiles list --user-id alice
+uv run reflexio agent-playbooks list
 ```
 
 ## Getting help

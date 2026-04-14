@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import functools
 import logging
 from collections.abc import Callable
-from math import e
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel

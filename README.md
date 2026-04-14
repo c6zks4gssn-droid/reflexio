@@ -65,7 +65,7 @@ Publish conversations from your agent, and Reflexio closes the self-improvement 
 
 ```shell
 # 1. Clone and configure
-git clone https://github.com/reflexio-ai/reflexio.git
+git clone https://github.com/ReflexioAI/reflexio.git
 cd reflexio
 cp .env.example .env          # Set at least one LLM API key (OpenAI, Anthropic, etc.)
 

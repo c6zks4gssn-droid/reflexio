@@ -1,4 +1,4 @@
-"""Agent playbook management commands (list, search, delete, aggregate, regenerate)."""
+"""Agent playbook management commands (list, search, delete, aggregate)."""
 
 from __future__ import annotations
 
@@ -531,55 +531,3 @@ def aggregate(
                 print_info("  Started")
 
 
-@app.command()
-@handle_errors
-def regenerate(
-    ctx: typer.Context,
-    wait: Annotated[
-        bool,
-        typer.Option("--wait", help="Wait for regeneration to complete"),
-    ] = False,
-    agent_version: Annotated[
-        str | None,
-        typer.Option("--agent-version", help="Agent version to regenerate"),
-    ] = None,
-) -> None:
-    """Rerun playbook generation for an agent version.
-
-    Args:
-        ctx: Typer context with CliState in ctx.obj
-        wait: If True, wait for regeneration to complete
-        agent_version: Optional agent version filter
-    """
-    client = get_client(ctx)
-    # Regenerate targets a specific agent_version — silently falling
-    # back to DEFAULT_AGENT_VERSION would re-run the wrong pool of
-    # playbooks. Require an explicit value (flag, env, or config).
-    resolved_version = require_agent_version(
-        agent_version, command_hint="playbook regeneration"
-    )
-
-    resp = client.rerun_playbook_generation(
-        agent_version=resolved_version,
-        wait_for_response=wait,
-    )
-
-    # When waiting, auto-promote PENDING user playbooks to CURRENT so
-    # they're immediately visible in `list` output.
-    if wait:
-        upgrade_resp = client.upgrade_user_playbooks(
-            agent_version=resolved_version,
-        )
-        promoted = upgrade_resp.user_playbooks_promoted if upgrade_resp else 0
-    else:
-        promoted = 0
-
-    json_mode: bool = ctx.obj.json_mode
-    if json_mode:
-        render(resp, json_mode=True)
-    elif wait:
-        print_info(
-            f"Playbook regeneration complete ({promoted} playbook(s) promoted)"
-        )
-    else:
-        print_info("Playbook regeneration started")

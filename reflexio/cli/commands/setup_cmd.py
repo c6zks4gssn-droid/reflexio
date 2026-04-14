@@ -694,7 +694,7 @@ def _remove_hook_config(settings_path: Path) -> None:
         return
     try:
         settings = json.loads(settings_path.read_text())
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):
         return
 
     hooks = settings.get("hooks")

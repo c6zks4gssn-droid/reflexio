@@ -540,7 +540,7 @@ class LiteLLMClient:
         max_retries_arg = kwargs.pop("max_retries", self.config.max_retries)
         try:
             max_retries = max(1, int(max_retries_arg))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             max_retries = max(1, int(self.config.max_retries))
 
         actual_model = kwargs.pop("model", self.config.model)

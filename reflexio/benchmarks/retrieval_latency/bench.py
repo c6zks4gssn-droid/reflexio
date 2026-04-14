@@ -295,7 +295,7 @@ def _git_sha() -> str:
             timeout=5,
         )
         return out.stdout.strip() or "unknown"
-    except subprocess.SubprocessError, FileNotFoundError, OSError:
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return "unknown"
 
 

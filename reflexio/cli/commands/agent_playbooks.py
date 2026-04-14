@@ -564,10 +564,22 @@ def regenerate(
         wait_for_response=wait,
     )
 
+    # When waiting, auto-promote PENDING user playbooks to CURRENT so
+    # they're immediately visible in `list` output.
+    if wait:
+        upgrade_resp = client.upgrade_user_playbooks(
+            agent_version=resolved_version,
+        )
+        promoted = upgrade_resp.user_playbooks_promoted if upgrade_resp else 0
+    else:
+        promoted = 0
+
     json_mode: bool = ctx.obj.json_mode
     if json_mode:
         render(resp, json_mode=True)
     elif wait:
-        print_info("Playbook regeneration complete")
+        print_info(
+            f"Playbook regeneration complete ({promoted} playbook(s) promoted)"
+        )
     else:
         print_info("Playbook regeneration started")

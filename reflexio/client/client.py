@@ -100,6 +100,8 @@ from reflexio.models.api_schema.service_schemas import (
 from reflexio.models.api_schema.domain.entities import (
     UpgradeProfilesRequest,
     UpgradeProfilesResponse,
+    UpgradeUserPlaybooksRequest,
+    UpgradeUserPlaybooksResponse,
 )
 from reflexio.models.config_schema import Config
 
@@ -1742,6 +1744,32 @@ class ReflexioClient:
             json=req.model_dump(),
         )
         return UpgradeProfilesResponse(**response)
+
+    def upgrade_user_playbooks(
+        self,
+        *,
+        agent_version: str | None = None,
+        playbook_name: str | None = None,
+    ) -> UpgradeUserPlaybooksResponse:
+        """Promote PENDING user playbooks to CURRENT, archive old CURRENT, delete old ARCHIVED.
+
+        Args:
+            agent_version: Filter by agent version. If None, upgrades all versions.
+            playbook_name: Filter by playbook name. If None, upgrades all playbooks.
+
+        Returns:
+            UpgradeUserPlaybooksResponse: Counts of archived, promoted, and deleted playbooks.
+        """
+        req = UpgradeUserPlaybooksRequest(
+            agent_version=agent_version,
+            playbook_name=playbook_name,
+        )
+        response = self._make_request(
+            "POST",
+            "/api/upgrade_all_user_playbooks",
+            json=req.model_dump(),
+        )
+        return UpgradeUserPlaybooksResponse(**response)
 
     async def _manual_profile_generation_async(
         self, request: ManualProfileGenerationRequest

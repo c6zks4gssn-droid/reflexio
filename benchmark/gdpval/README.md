@@ -11,13 +11,20 @@ total (2 hosts × 3 phases). The headline we care about is `mean(P2 − P3)`.
 
 ## Prerequisites
 
-1. Clone dependency repos next to this one:
+1. Clone the dependency repos. By default `config.py` looks under `~/repos/`:
    ```bash
-   git clone https://github.com/HKUDS/ClawWork ~/repos/ClawWork
-   # OpenSpace and hermes-agent should already be at ~/repos/OpenSpace and ~/repos/hermes-agent.
+   mkdir -p ~/repos
+   git clone https://github.com/openspace-ai/OpenSpace      ~/repos/OpenSpace
+   git clone https://github.com/HKUDS/hermes-agent           ~/repos/hermes-agent
+   git clone https://github.com/HKUDS/ClawWork               ~/repos/ClawWork
    ```
-   Override the defaults with `OPENSPACE_ROOT`, `HERMES_ROOT`, `CLAWWORK_ROOT`
-   env vars if you cloned elsewhere.
+   If you cloned them elsewhere, point the benchmark at them via env vars
+   before running:
+   ```bash
+   export OPENSPACE_ROOT=/path/to/OpenSpace
+   export HERMES_ROOT=/path/to/hermes-agent
+   export CLAWWORK_ROOT=/path/to/ClawWork
+   ```
 
 2. Start a reflexio backend in a separate terminal:
    ```bash

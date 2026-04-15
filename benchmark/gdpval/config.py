@@ -8,10 +8,33 @@ from pathlib import Path
 
 _THIS_DIR = Path(__file__).resolve().parent  # benchmark/
 
-# External repos — must be cloned at these paths for adapters and evaluator.
-OPENSPACE_ROOT = Path(os.environ.get("OPENSPACE_ROOT", "/Users/yilu/repos/OpenSpace"))
-HERMES_ROOT = Path(os.environ.get("HERMES_ROOT", "/Users/yilu/repos/hermes-agent"))
-CLAWWORK_ROOT = Path(os.environ.get("CLAWWORK_ROOT", "/Users/yilu/repos/ClawWork"))
+# External repos — point these at your local clones via env vars. The
+# defaults assume the layout documented in the README (`~/repos/<name>`),
+# so contributors don't need to bake in any personal absolute paths. The
+# `ensure_*_importable` helpers below raise a clear error if the directory
+# is missing.
+_DEFAULT_REPOS_DIR = Path.home() / "repos"
+
+
+def _resolve_repo_root(env_var: str, default_dirname: str) -> Path:
+    """Resolve an external repo root from an env var, falling back to ``~/repos/<name>``.
+
+    Args:
+        env_var (str): Name of the environment variable that points at the repo.
+        default_dirname (str): Directory name under ``~/repos`` to use when unset.
+
+    Returns:
+        Path: Resolved (but not necessarily existing) absolute path.
+    """
+    raw = os.environ.get(env_var)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (_DEFAULT_REPOS_DIR / default_dirname).resolve()
+
+
+OPENSPACE_ROOT = _resolve_repo_root("OPENSPACE_ROOT", "OpenSpace")
+HERMES_ROOT = _resolve_repo_root("HERMES_ROOT", "hermes-agent")
+CLAWWORK_ROOT = _resolve_repo_root("CLAWWORK_ROOT", "ClawWork")
 
 # Default run configuration.
 # Use the bare `minimax/` litellm prefix so OpenSpace (which routes through

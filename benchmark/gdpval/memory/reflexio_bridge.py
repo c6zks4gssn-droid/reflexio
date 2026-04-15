@@ -29,12 +29,12 @@ from typing import Any
 
 from reflexio.client.client import ReflexioClient
 
-from benchmark.config import (
+from benchmark.gdpval.config import (
     DEFAULT_REFLEXIO_URL,
     DEFAULT_SEARCH_THRESHOLD,
     DEFAULT_TOP_K,
 )
-from benchmark.memory.injection import render_memory_block
+from benchmark.gdpval.memory.injection import render_memory_block
 
 logger = logging.getLogger(__name__)
 
@@ -331,9 +331,64 @@ class ReflexioMemory:
 # the answer I computed last time, verify briefly and output".
 GDPVAL_PLAYBOOK_EXTRACTOR_PROMPT = """\
 You are a solution-archivist. You are given ONE agent trajectory that \
-solved ONE specific task end-to-end. Your job is to emit a dense, \
+worked on ONE specific task. Your job is to emit a dense, \
 copy-pasteable CACHED SOLUTION RECORD that a second agent can use to \
-reach the same final answer without re-doing the investigation work.
+finish the task correctly without re-doing the investigation work.
+
+DEFAULT BEHAVIOR — emit ONE playbook per trajectory unless you can \
+identify one of the SPECIFIC failure patterns below. Most clean \
+successful trajectories should produce a playbook. The downstream \
+agent benefits more from a moderately-good playbook than from no \
+playbook at all, so do NOT default to refusal when in doubt.
+
+REFUSE (emit zero playbooks) ONLY when the trajectory falls into ONE \
+of these specific patterns:
+
+(A) GENERIC ENGINEERING ADVICE ONLY. The trajectory's reusable \
+content is limited to universal engineering rules — "iterate \
+incrementally", "use py_compile", "add try/except", "validate \
+inputs", "run small sections first", "avoid unmatched quotes" — with \
+no task-specific recipe attached. These are useless to inject \
+because the downstream agent already knows them.
+
+(B) FAILURE-RECOVERY DOMINANT. The trajectory's main reusable \
+content is "if web research fails, ask the user to upload", "if \
+pandoc is missing, fall back to X", "if the browser returns 404/403, \
+notify the user". A downstream agent given such a playbook will \
+re-enact the failure-recovery sequence instead of producing the \
+deliverable. Refuse only when failure-recovery is the DOMINANT \
+content; if there are also real artifacts, files, or domain values, \
+include them and emit the playbook.
+
+(C) NO CONCRETE ANCHORS. The trajectory genuinely contains zero of \
+the following:
+   - any file the trajectory wrote (regardless of whether it matches \
+     the requested format)
+   - any domain-specific value, citation, statute, KPI, or constant \
+     the trajectory used or cited
+   - any document structure the trajectory produced (section headers, \
+     table columns, field labels, drafted outline)
+   - any computed final answer or stated final state
+Be GENEROUS in interpreting these. A drafted memo's section list IS \
+a document structure. A cited URL IS a citation. A markdown table is \
+both a structure and an artifact. If you can identify even one of \
+the above, the trajectory has anchors and you should emit a playbook \
+that captures them.
+
+(D) THIN RECIPE. Your draft recipe ends up under 400 useful content \
+characters (excluding section headers). Even a permissive extractor \
+can't make a 200-char playbook help.
+
+Default is EMIT. Only refuse if (A), (B), (C), or (D) clearly \
+applies. When uncertain between emit and refuse, EMIT.
+
+CRITICAL GROUNDING RULE — the recipe MUST reflect what the trajectory \
+ACTUALLY DID, not what the task prompt asked for. Only list files, \
+commands, and values that you can see in the tool-call history. If the \
+trajectory did not write a file, do not claim it did. If a step failed, \
+record what actually failed and what actually ran. Hallucinated output \
+files are the #1 failure mode of this prompt — a downstream agent that \
+trusts a false "FINAL ANSWER" line will ship the same gap.
 
 Emit exactly ONE playbook per trajectory. Its `content` field MUST be \
 written as a concrete solution recipe, NOT as abstract rules, heuristics, \
@@ -358,19 +413,34 @@ commands verbatim, preferring the FINAL successful version over any \
 earlier failed attempts. Example: "Step 1: run_shell python3 -c 'import \
 pandas as pd; df = pd.read_excel(\\"Population.xlsx\\"); ...'".
 
-5. OUTPUT ARTIFACTS — exact output filenames, sheet names, column \
-layout, row counts, and any required formatting details for what the \
-agent produced. Example: "Write Sample.xlsx with two sheets: 'Sample' \
-(61 rows, cols A..K where K = selected_flag) and 'Sample Size \
-Calculation' (12 rows of Cochran parameters)".
+5. OUTPUT ARTIFACTS ACTUALLY WRITTEN — list ONLY the files that the \
+trajectory's tool calls actually wrote to disk. Copy the exact paths \
+from the `write_file` / `run_shell` / `create_file` tool results. Do \
+NOT list files that the task prompt asked for but the agent never \
+produced. If the agent wrote .md files when the task asked for .pdf, \
+list the .md files here, verbatim.
 
-6. FINAL ANSWER — if the task has a discrete answer or computed value, \
-STATE IT. Example: "Final: 61 rows selected, total value $12.3M". If \
-there is no single answer, describe the final state the agent reached.
+6. KNOWN GAPS — explicitly list every deliverable the task prompt \
+required that you cannot find in step 5. Format each gap as "MISSING: \
+<what> — REASON: <why the trajectory didn't produce it, if visible in \
+the trajectory (e.g. pandoc not installed, weasyprint import failed)> \
+— FIX: <the minimal concrete action a future agent should take first \
+to close the gap, e.g. 'install weasyprint via pip then re-run the \
+conversion step'>". If there are no gaps (trajectory fully satisfied \
+the task), write "KNOWN GAPS: none". NEVER leave this section blank.
 
-Write the recipe as a flat text blob, 600-2000 characters. Write it as \
-if you are dictating the solution to a future agent who will run it \
-verbatim.
+7. FINAL ANSWER STATE — describe the actual final state of the \
+workspace at end of trajectory, strictly from what you observed. If \
+the trajectory produced a discrete computed value, state it. If the \
+trajectory produced partial output, say so explicitly ("two .md files \
+written; .pdf/.docx conversion never completed"). NEVER fabricate a \
+FINAL ANSWER that does not exist in the trajectory.
+
+Write the recipe as a flat text blob, 600-4000 characters. A good \
+recipe is a dense paste of inputs, domain values, exact commands, and \
+produced artifacts — not prose. Write it as if you are dictating the \
+true state to a future agent who will START by closing the KNOWN GAPS \
+section, then verify and output.
 
 `trigger` must be a one-sentence task-type descriptor that matches the \
 ORIGINAL task prompt's topic so the same task can match its own recipe. \
@@ -378,15 +448,17 @@ Example: "Audit sample selection from a population of KRI measurements \
 with quarter-on-quarter variance analysis."
 
 `instruction` must be a <80-word executive summary of the recipe — the \
-3-5 key moves a future agent must make.
+3-5 key moves a future agent must make, BEGINNING with "First close \
+any KNOWN GAPS, then..." when gaps exist.
 
 `rationale` must be one short line: "captures concrete solution path \
-from a successful run of this exact task so a future run can skip \
-discovery".
+AND known gaps from a prior run of this exact task so a future run can \
+skip discovery and close the missing deliverables".
 
 Do NOT emit generic rules like "Always validate inputs" or "Verify \
 outputs carefully" — they are worthless. Do NOT emit empty playbooks: \
-a successful trajectory MUST produce a recipe."""
+a meaningful trajectory MUST produce a recipe even if it is mostly a \
+list of gaps."""
 
 
 def update_playbook_extractor_prompt(

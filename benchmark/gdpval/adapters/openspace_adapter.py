@@ -20,13 +20,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from benchmark.adapters.base import AgentResult, HostAgentAdapter
-from benchmark.config import (
+from benchmark.gdpval.adapters.base import AgentResult, HostAgentAdapter
+from benchmark.gdpval.config import (
     OPENSPACE_BASELINE_DIR,
     OPENSPACE_ROOT,
     ensure_openspace_importable,
 )
-from benchmark.tokens import (
+from benchmark.gdpval.tokens import (
     TokenStats,
     TokenTracker,
     stats_from_openspace,
@@ -208,7 +208,7 @@ class OpenSpaceAdapter(HostAgentAdapter):
         if self._cs is None:
             raise RuntimeError("OpenSpaceAdapter.initialize() not called")
 
-        from benchmark.task_loader import prepare_task_workspace
+        from benchmark.gdpval.task_loader import prepare_task_workspace
 
         workspace.mkdir(parents=True, exist_ok=True)
         augmented_prompt = prepare_task_workspace(task, str(workspace))

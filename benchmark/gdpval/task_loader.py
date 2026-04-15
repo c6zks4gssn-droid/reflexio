@@ -7,7 +7,7 @@ through automatically.
 
 from __future__ import annotations
 
-from benchmark.config import ensure_openspace_importable
+from benchmark.gdpval.config import ensure_openspace_importable
 
 ensure_openspace_importable()
 

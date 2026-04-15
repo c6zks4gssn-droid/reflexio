@@ -6,10 +6,10 @@ the cross-cell deltas.
 
 Run:
 
-    uv run python -m benchmark.run_benchmark \\
+    uv run python -m benchmark.gdpval.run_benchmark \\
         --hosts openspace,hermes \\
         --phases p1,p2,p3 \\
-        --task-list benchmark/task_lists/tasks_50.json \\
+        --task-list benchmark/gdpval/task_lists/tasks_50.json \\
         --max-tasks 5
 """
 
@@ -27,23 +27,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-_THIS_DIR = Path(__file__).resolve().parent  # open_source/reflexio/benchmark/
-# The benchmark package now lives inside the reflexio submodule at
-# open_source/reflexio/benchmark/. Adding the submodule root (its parent)
-# to sys.path makes `import benchmark.x` work whether the user runs
-# `python -m benchmark.run_benchmark` from the submodule root or from
+_THIS_DIR = Path(__file__).resolve().parent  # open_source/reflexio/benchmark/gdpval/
+# The benchmark package lives inside the reflexio submodule at
+# open_source/reflexio/benchmark/gdpval/. Adding the submodule root
+# to sys.path makes `import benchmark.gdpval.x` work whether the user runs
+# `python -m benchmark.gdpval.run_benchmark` from the submodule root or from
 # the outer reflexio-gdpval-bench repo root.
-_SUBMODULE_ROOT = _THIS_DIR.parent  # open_source/reflexio/
+_SUBMODULE_ROOT = _THIS_DIR.parents[1]  # open_source/reflexio/
 
 if str(_SUBMODULE_ROOT) not in sys.path:
     sys.path.insert(0, str(_SUBMODULE_ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
 
-from benchmark.adapters.base import AgentResult, HostAgentAdapter  # noqa: E402
-from benchmark.adapters.hermes_adapter import HermesAdapter  # noqa: E402
-from benchmark.adapters.openspace_adapter import OpenSpaceAdapter  # noqa: E402
-from benchmark.config import (  # noqa: E402
+from benchmark.gdpval.adapters.base import AgentResult, HostAgentAdapter  # noqa: E402
+from benchmark.gdpval.adapters.hermes_adapter import HermesAdapter  # noqa: E402
+from benchmark.gdpval.adapters.openspace_adapter import OpenSpaceAdapter  # noqa: E402
+from benchmark.gdpval.config import (  # noqa: E402
     CLAWWORK_ROOT,
     DEFAULT_HOSTS,
     DEFAULT_MODEL,
@@ -53,13 +53,13 @@ from benchmark.config import (  # noqa: E402
     LOG_DIR,
     OUTPUT_DIR,
 )
-from benchmark.evaluation import evaluate_task  # noqa: E402
-from benchmark.memory.reflexio_bridge import (  # noqa: E402
+from benchmark.gdpval.evaluation import evaluate_task  # noqa: E402
+from benchmark.gdpval.memory.reflexio_bridge import (  # noqa: E402
     ReflexioMemory,
     update_playbook_extractor_prompt,
 )
-from benchmark.task_loader import load_tasks  # noqa: E402
-from benchmark.tokens import TokenStats  # noqa: E402
+from benchmark.gdpval.task_loader import load_tasks  # noqa: E402
+from benchmark.gdpval.tokens import TokenStats  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -1096,7 +1096,7 @@ async def _amain(args: argparse.Namespace) -> None:
             host=host, phases=phases, args=args, tasks=tasks, run_dir=run_dir
         )
 
-    from benchmark.report import build_comparison  # noqa: E402
+    from benchmark.gdpval.report import build_comparison  # noqa: E402
 
     # When --cache-from is set, the cached p1/p2 results were copied into the
     # current run dir during _hydrate_cache. Build the comparison across ALL

@@ -1,7 +1,6 @@
-"""GDPVal-style benchmark comparing OpenSpace and Hermes, with and without Reflexio.
+"""Reflexio benchmark suite — a parent package for per-benchmark subpackages.
 
-Runs the GDPVal dataset through two host agents (OpenSpace, Hermes) in a
-three-phase protocol (cold → host-warm → host-warm + reflexio) so we can
-isolate the marginal contribution of Reflexio's memory layer on top of each
-host's own native learning system.
+Each subpackage (e.g. `benchmark.gdpval`) is a self-contained harness for a
+specific evaluation. Put shared utilities here only if more than one
+subpackage needs them.
 """

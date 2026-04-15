@@ -40,7 +40,7 @@ total (2 hosts × 3 phases). The headline we care about is `mean(P2 − P3)`.
 ## Running
 
 ```bash
-uv run python -m benchmark.run_benchmark \
+uv run python -m benchmark.gdpval.run_benchmark \
     --hosts openspace,hermes \
     --phases p1,p2,p3 \
     --max-tasks 5 \
@@ -99,7 +99,7 @@ output/<run_name>/
   native memory. P3 retrieves via `ReflexioClient.search()` (unified search
   across profiles + agent_playbooks + user_playbooks).
 
-- **Evaluator.** `benchmark/evaluation.py` is a port of
+- **Evaluator.** `benchmark/gdpval/evaluation.py` is a port of
   `OpenSpace/gdpval_bench/run_benchmark.py:_evaluate_task` — same artifact
   extensions, same `LLMEvaluator` call, same 0.6 payment cliff. Scoring is
   apples-to-apples with OpenSpace's published gdpval_bench numbers.

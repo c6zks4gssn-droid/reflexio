@@ -28,9 +28,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from benchmark.adapters.base import AgentResult, HostAgentAdapter
-from benchmark.config import ensure_hermes_importable
-from benchmark.tokens import TokenStats, stats_from_hermes_result
+from benchmark.gdpval.adapters.base import AgentResult, HostAgentAdapter
+from benchmark.gdpval.config import ensure_hermes_importable
+from benchmark.gdpval.tokens import TokenStats, stats_from_hermes_result
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +250,7 @@ class HermesAdapter(HostAgentAdapter):
         # variant would need per-task isolation instead of chdir.
         os.chdir(workspace)
 
-        from benchmark.task_loader import prepare_task_workspace
+        from benchmark.gdpval.task_loader import prepare_task_workspace
 
         augmented_prompt = prepare_task_workspace(task, str(workspace))
 

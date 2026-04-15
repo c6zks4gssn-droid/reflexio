@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
-from benchmark.config import ensure_openspace_importable
+from benchmark.gdpval.config import ensure_openspace_importable
 
 ensure_openspace_importable()
 

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from benchmark.memory.injection import render_memory_block
+from benchmark.gdpval.memory.injection import render_memory_block
 
 pytestmark = pytest.mark.integration
 
@@ -40,7 +40,7 @@ _EXAMPLE_TASK: dict = {
 
 def test_openspace_adapter_memory_prepend(tmp_path: Path) -> None:
     """OpenSpace adapter wraps reflexio memory into a <memory>…</memory> block."""
-    from benchmark.adapters.openspace_adapter import OpenSpaceAdapter
+    from benchmark.gdpval.adapters.openspace_adapter import OpenSpaceAdapter
 
     adapter = OpenSpaceAdapter(model="openrouter/minimax/MiniMax-M2.7")
 
@@ -72,7 +72,7 @@ def test_openspace_adapter_memory_prepend(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
 
     with patch(
-        "benchmark.task_loader.prepare_task_workspace",
+        "benchmark.gdpval.task_loader.prepare_task_workspace",
         return_value=_EXAMPLE_TASK["prompt"],
     ):
         result = asyncio.run(adapter.run(_EXAMPLE_TASK, ws, memory="USE PLAYBOOK: foo"))
@@ -97,7 +97,7 @@ def test_openspace_adapter_memory_prepend(tmp_path: Path) -> None:
 
 def test_openspace_adapter_no_memory(tmp_path: Path) -> None:
     """Without memory, the prompt is unmodified."""
-    from benchmark.adapters.openspace_adapter import OpenSpaceAdapter
+    from benchmark.gdpval.adapters.openspace_adapter import OpenSpaceAdapter
 
     adapter = OpenSpaceAdapter(model="openrouter/minimax/MiniMax-M2.7")
 
@@ -122,7 +122,7 @@ def test_openspace_adapter_no_memory(tmp_path: Path) -> None:
 
     ws = tmp_path / "ws"
     with patch(
-        "benchmark.task_loader.prepare_task_workspace",
+        "benchmark.gdpval.task_loader.prepare_task_workspace",
         return_value=_EXAMPLE_TASK["prompt"],
     ):
         asyncio.run(adapter.run(_EXAMPLE_TASK, ws, memory=None))
@@ -139,7 +139,7 @@ def test_openspace_adapter_no_memory(tmp_path: Path) -> None:
 
 def test_hermes_adapter_system_message_wiring(tmp_path: Path) -> None:
     """Hermes adapter passes reflexio memory via `system_message=`."""
-    from benchmark.adapters.hermes_adapter import HermesAdapter
+    from benchmark.gdpval.adapters.hermes_adapter import HermesAdapter
 
     adapter = HermesAdapter(model="minimax/MiniMax-M2.7", api_key="fake-key")
 
@@ -171,7 +171,7 @@ def test_hermes_adapter_system_message_wiring(tmp_path: Path) -> None:
 
     ws = tmp_path / "ws"
     with patch(
-        "benchmark.task_loader.prepare_task_workspace",
+        "benchmark.gdpval.task_loader.prepare_task_workspace",
         return_value=_EXAMPLE_TASK["prompt"],
     ):
         result = asyncio.run(adapter.run(_EXAMPLE_TASK, ws, memory="USE PLAYBOOK: foo"))
@@ -187,7 +187,7 @@ def test_hermes_adapter_system_message_wiring(tmp_path: Path) -> None:
 
 def test_hermes_adapter_strips_litellm_prefix() -> None:
     """The adapter strips `openrouter/` prefixes so Hermes gets the bare ID."""
-    from benchmark.adapters.hermes_adapter import HermesAdapter
+    from benchmark.gdpval.adapters.hermes_adapter import HermesAdapter
 
     adapter = HermesAdapter(model="openrouter/minimax/MiniMax-M2.7", api_key="k")
     assert adapter._model == "minimax/MiniMax-M2.7"
@@ -292,7 +292,7 @@ def test_injection_renders_plain_recipe_body() -> None:
 
 def test_reflexio_bridge_fetch_empty_returns_none(tmp_path: Path) -> None:
     """fetch_for_task returns None when the client yields no hits."""
-    from benchmark.memory.reflexio_bridge import ReflexioMemory
+    from benchmark.gdpval.memory.reflexio_bridge import ReflexioMemory
 
     bridge = ReflexioMemory(user_id_prefix="bench_test")
     empty_response = SimpleNamespace(profiles=[], agent_playbooks=[], user_playbooks=[])
@@ -304,7 +304,7 @@ def test_reflexio_bridge_fetch_empty_returns_none(tmp_path: Path) -> None:
 
 def test_reflexio_bridge_fetch_renders_hits() -> None:
     """fetch_for_task returns a rendered block when hits are present."""
-    from benchmark.memory.reflexio_bridge import ReflexioMemory
+    from benchmark.gdpval.memory.reflexio_bridge import ReflexioMemory
 
     bridge = ReflexioMemory(user_id_prefix="bench_test")
     response = SimpleNamespace(
@@ -330,7 +330,7 @@ def test_reflexio_bridge_fetch_renders_hits() -> None:
 
 def test_reflexio_bridge_publish_swallows_errors() -> None:
     """Publishing never raises even if the backend errors out."""
-    from benchmark.memory.reflexio_bridge import ReflexioMemory
+    from benchmark.gdpval.memory.reflexio_bridge import ReflexioMemory
 
     bridge = ReflexioMemory(user_id_prefix="bench_test")
     bridge._client.publish_interaction = MagicMock(side_effect=RuntimeError("boom"))
@@ -351,7 +351,7 @@ def test_reflexio_bridge_publish_swallows_errors() -> None:
 
 def test_copy_tree_round_trip(tmp_path: Path) -> None:
     """_copy_tree in the OpenSpace adapter reproduces contents byte-for-byte."""
-    from benchmark.adapters.openspace_adapter import _copy_tree
+    from benchmark.gdpval.adapters.openspace_adapter import _copy_tree
 
     src = tmp_path / "src"
     src.mkdir()
@@ -383,7 +383,7 @@ def _mk_tasks(n: int) -> list[dict]:
 
 def test_apply_task_slice_offset_and_cap() -> None:
     """_apply_task_slice skips `offset` tasks, then caps at `max_tasks`."""
-    from benchmark.run_benchmark import _apply_task_slice
+    from benchmark.gdpval.run_benchmark import _apply_task_slice
 
     tasks = _mk_tasks(10)
     sliced = _apply_task_slice(tasks, offset=5, max_tasks=3)
@@ -392,7 +392,7 @@ def test_apply_task_slice_offset_and_cap() -> None:
 
 def test_apply_task_slice_offset_only() -> None:
     """max_tasks=None means "no cap" — offset still applies alone."""
-    from benchmark.run_benchmark import _apply_task_slice
+    from benchmark.gdpval.run_benchmark import _apply_task_slice
 
     tasks = _mk_tasks(4)
     sliced = _apply_task_slice(tasks, offset=2, max_tasks=None)
@@ -401,7 +401,7 @@ def test_apply_task_slice_offset_only() -> None:
 
 def test_apply_task_slice_offset_beyond_length_returns_empty() -> None:
     """offset >= len(tasks) yields an empty list instead of wrapping."""
-    from benchmark.run_benchmark import _apply_task_slice
+    from benchmark.gdpval.run_benchmark import _apply_task_slice
 
     tasks = _mk_tasks(3)
     assert _apply_task_slice(tasks, offset=5, max_tasks=10) == []
@@ -410,7 +410,7 @@ def test_apply_task_slice_offset_beyond_length_returns_empty() -> None:
 def test_apply_task_slice_negative_offset_clamped() -> None:
     """Negative offsets are clamped to 0 so callers can't accidentally
     reverse-index from the end of the list."""
-    from benchmark.run_benchmark import _apply_task_slice
+    from benchmark.gdpval.run_benchmark import _apply_task_slice
 
     tasks = _mk_tasks(3)
     sliced = _apply_task_slice(tasks, offset=-2, max_tasks=2)
@@ -419,7 +419,7 @@ def test_apply_task_slice_negative_offset_clamped() -> None:
 
 def test_resolve_task_ids_csv_overrides_task_list(tmp_path: Path) -> None:
     """Explicit --task-ids takes precedence over --task-list (JSON file)."""
-    from benchmark.run_benchmark import _resolve_task_ids
+    from benchmark.gdpval.run_benchmark import _resolve_task_ids
 
     list_file = tmp_path / "tasks.json"
     list_file.write_text('["from-file-001", "from-file-002"]')
@@ -430,7 +430,7 @@ def test_resolve_task_ids_csv_overrides_task_list(tmp_path: Path) -> None:
 
 def test_resolve_task_ids_falls_back_to_list(tmp_path: Path) -> None:
     """With no CSV, _resolve_task_ids reads the JSON file."""
-    from benchmark.run_benchmark import _resolve_task_ids
+    from benchmark.gdpval.run_benchmark import _resolve_task_ids
 
     list_file = tmp_path / "tasks.json"
     list_file.write_text('["a", "b"]')
@@ -440,7 +440,7 @@ def test_resolve_task_ids_falls_back_to_list(tmp_path: Path) -> None:
 
 def test_resolve_task_ids_returns_none_when_both_absent() -> None:
     """No filter flags → no task-ID filter."""
-    from benchmark.run_benchmark import _resolve_task_ids
+    from benchmark.gdpval.run_benchmark import _resolve_task_ids
 
     assert _resolve_task_ids(None, None) is None
     assert _resolve_task_ids("", "") is None

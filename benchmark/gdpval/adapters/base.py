@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from benchmark.tokens import TokenStats
+from benchmark.gdpval.tokens import TokenStats
 
 
 @dataclass

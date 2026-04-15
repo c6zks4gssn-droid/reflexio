@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from benchmark.config import (
+from benchmark.gdpval.config import (
     CLAWWORK_ROOT,
     EVAL_ARTIFACT_EXTENSIONS,
     EVAL_MIN_THRESHOLD,

@@ -7,10 +7,13 @@ Searches for .env in multiple locations. On first run, auto-creates
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import re
 import secrets
 import sys
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -95,8 +98,7 @@ def load_reflexio_env(
     for env_path in _ENV_SEARCH_PATHS:
         if env_path.exists():
             load_dotenv(dotenv_path=env_path)
-            sys.stdout.write(f"  Loaded env from: {env_path.resolve()}\n")
-            sys.stdout.flush()
+            _logger.debug("Loaded env from: %s", env_path.resolve())
             # Auto-generate any missing secret keys into the existing .env
             _backfill_missing_keys(env_path, auto_generate_keys or [])
             return env_path

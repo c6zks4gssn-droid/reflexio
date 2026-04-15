@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 import uuid
 from collections.abc import Callable
@@ -202,12 +203,17 @@ class GenerationService:
             # when threads are hung on LLM calls
             executor = ThreadPoolExecutor(max_workers=2)
             try:
+                # Each thread needs its own context copy — Context.run() is non-reentrant
                 futures = [
                     executor.submit(
-                        profile_generation_service.run, profile_generation_request
+                        contextvars.copy_context().run,
+                        profile_generation_service.run,
+                        profile_generation_request,
                     ),
                     executor.submit(
-                        playbook_generation_service.run, playbook_generation_request
+                        contextvars.copy_context().run,
+                        playbook_generation_service.run,
+                        playbook_generation_request,
                     ),
                 ]
 

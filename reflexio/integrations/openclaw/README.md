@@ -2,7 +2,45 @@
 
 Connect [OpenClaw](https://openclaw.ai) agents to [Reflexio](https://github.com/reflexio-ai/reflexio) for automatic self-improvement with multi-user support and agent playbooks. Conversations are captured automatically; task-specific playbooks are retrieved on-demand via the `reflexio` CLI; and corrections from multiple agent instances are aggregated into shared agent playbooks.
 
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Multi-User Architecture](#multi-user-architecture)
+- [Agent Playbooks](#agent-playbooks)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Scheduled Aggregation](#scheduled-aggregation)
+- [What to Expect](#what-to-expect)
+- [File Structure](#file-structure)
+- [Manual Testing](#manual-testing)
+- [Comparison with Claude Code / LangChain Integrations](#comparison-with-claude-code--langchain-integrations)
+
 ## How It Works
+
+```mermaid
+flowchart TD
+    subgraph "1. Capture (Hook)"
+        C1["Each turn: buffer messages"] --> C2["Session end: publish to Reflexio"]
+        C2 --> C3["Server extracts playbooks & profiles"]
+    end
+
+    subgraph "2. Retrieve (Hook + Skill)"
+        R1["message:received hook"] --> R2["reflexio search"]
+        R2 --> R3["Inject matching playbooks & profiles"]
+        R4["Skill: on-demand search"] --> R2
+    end
+
+    subgraph "3. Aggregate (Automatic + Manual)"
+        A1["Cluster similar user playbooks"] --> A2["Deduplicate & consolidate"]
+        A2 --> A3["Shared Agent Playbooks"]
+        A4["Cron / manual trigger"] --> A1
+    end
+
+    C3 --> R2
+    C3 --> A1
+    A3 --> R3
+```
 
 The integration has three independent mechanisms:
 
@@ -241,3 +279,8 @@ See [TESTING.md](TESTING.md) for a step-by-step guide to manually test the integ
 | Dependencies | `reflexio` CLI only | `reflexio` CLI only | `langchain-core >= 0.3.0` |
 
 All integrations connect to the same Reflexio server and share the same playbook/profile data. Agent playbooks aggregated from OpenClaw instances are visible to Claude Code agents, and vice versa, as long as they use the same `--agent-version` tag.
+
+## Further Reading
+
+- [Reflexio main README](../../../../README.md)
+- [Python SDK documentation](../../../client_dist/README.md)

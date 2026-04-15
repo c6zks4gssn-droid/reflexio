@@ -1,5 +1,7 @@
 # Retrieval Latency Benchmark
 
+> Part of the [Reflexio Code Map](../../README.md). Related to the server's [Unified Search Service](../../server/README.md#unified-search-service) and [Storage](../../server/README.md#storage) components.
+
 Measures end-to-end latency for profile search, user/agent playbook search,
 and unified cross-entity search across storage backends and corpus sizes.
 
@@ -100,3 +102,8 @@ cp tests/benchmarks/tmp/results.json tests/benchmarks/baseline.json
 ```
 
 Then commit the new `baseline.json`.
+
+## See Also
+
+- [Code Map (root README)](../../README.md) -- high-level overview of all Reflexio components
+- [Server README](../../server/README.md) -- backend architecture including search and storage

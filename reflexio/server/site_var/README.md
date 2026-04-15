@@ -1,6 +1,8 @@
 # Site Variables
 Description: Global configuration manager for site-wide variables and per-org feature flags
 
+> Part of the [Reflexio Server](../README.md).
+
 ## Main Entry Points
 
 - **Manager**: `site_var_manager.py` - `SiteVarManager` (singleton)
@@ -69,3 +71,7 @@ site_var/
 - **Variable name**: Filename without extension
 - **Redis optional**: Enable via `SiteVarManager(enable_redis=True)`
 - **Feature flags**: Loaded via SiteVarManager, resolved per-org at request time
+
+## See Also
+
+- [Server README](../README.md) -- FastAPI backend component overview

@@ -2,6 +2,8 @@
 
 File-based versioned prompt templates for LLM operations.
 
+> Part of the [Reflexio Server](../../README.md). See also the [Playbook Service](../../services/playbook/README.md) for prompt usage in playbook extraction.
+
 ## Main Entry Points
 
 - **Manager**: `../prompt_manager.py` — `PromptManager`
@@ -112,3 +114,8 @@ variables:
 - **Exactly one** version per prompt must have `active: true`
 - **Deactivate old versions** by removing the `active: true` line — never add `active: false`
 - **NEVER hardcode prompts** — always use `PromptManager`
+
+## See Also
+
+- [Server README](../../README.md) -- FastAPI backend component overview
+- [Playbook Service README](../../services/playbook/README.md) -- how prompts are used in playbook extraction and aggregation

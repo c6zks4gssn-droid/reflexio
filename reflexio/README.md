@@ -1,6 +1,16 @@
 # Reflexio Code Map
 Describe the code structure and component dependencies for source code of reflexio
 
+## Table of Contents
+
+- [Overview](#overview)
+- [reflexio_commons and reflexio_client](#reflexio_commons-and-reflexio_client)
+- [website](#website)
+- [reflexio_lib](#reflexio_lib)
+- [server](#server)
+- [data](#data)
+- [See Also](#see-also)
+
 ## Overview
 Reflexio is a user profiling and agent playbook system with three main access patterns:
 
@@ -94,7 +104,7 @@ Creates `RequestContext` and directly calls `GenerationService` - bypasses FastA
 ## server
 Description: FastAPI backend server that processes user interactions to generate profiles, extract playbooks, and evaluate agent success
 
-**Detailed Documentation**: See `reflexio/server/README.md` for component details
+**Detailed Documentation**: See [`reflexio/server/README.md`](server/README.md) for component details, including the [Prompt Bank](server/prompt/prompt_bank/README.md), [Playbook Service](server/services/playbook/README.md), and [Site Variables](server/site_var/README.md)
 
 ### Main Entry Points
 - **API**: `api.py` - FastAPI routes
@@ -163,3 +173,12 @@ Local data storage for:
 
 ### Architecture Pattern
 Referenced by `SimpleConfigurator` for loading configs and by database operations for auth/config persistence. Not directly accessed by application code.
+
+## See Also
+
+- [Server README](server/README.md) -- detailed component documentation for the FastAPI backend
+- [Prompt Bank README](server/prompt/prompt_bank/README.md) -- versioned prompt template system
+- [Playbook Service README](server/services/playbook/README.md) -- playbook extraction, aggregation, and deduplication pipeline
+- [Site Variables README](server/site_var/README.md) -- global configuration and feature flags
+- [Retrieval Latency Benchmarks](benchmarks/retrieval_latency/README.md) -- search performance benchmarking
+- [OpenClaw Integration Eval](integrations/openclaw/eval/README.md) -- end-to-end integration evaluation suite

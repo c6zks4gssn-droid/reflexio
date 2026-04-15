@@ -7,6 +7,21 @@
 
 In future sessions, Reflexio searches for relevant profiles and playbooks before Claude responds — so Claude adapts to your style and doesn't repeat mistakes.
 
+> Part of the [Reflexio](../../../../README.md) open-source project. See also the [Python SDK docs](../../../client_dist/README.md).
+
+## Table of Contents
+
+- [How Reflexio Works](#how-reflexio-works)
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Set Up Claude Code Integration](#set-up-claude-code-integration)
+- [Uninstall](#uninstall)
+- [How to Use: Normal Mode](#how-to-use-normal-mode)
+- [How to Use: Expert Mode](#how-to-use-expert-mode)
+- [Normal vs Expert: Which to Choose?](#normal-vs-expert-which-to-choose)
+- [Monitoring & Troubleshooting](#monitoring--troubleshooting)
+- [How It Works (Technical)](#how-it-works-technical)
+
 ## How Reflexio Works
 
 ### How it flows
@@ -319,28 +334,33 @@ ORDER BY user_playbook_id DESC LIMIT 5;
 
 ## How It Works (Technical)
 
-```
-Claude Code session starts
-  │
-  ├── SessionStart hook fires (~10ms, non-blocking)
-  │     └── session_start_hook.sh checks server health
-  │     └── If not running: starts server in background
-  │
-User sends message to Claude Code
-  │
-  ├── UserPromptSubmit hook fires (every message)
-  │     └── search_hook.js runs `reflexio search "<message>" --user-id claude-code`
-  │     └── Matching profiles + playbooks injected as context
-  │
-  ├── Claude responds (adapting to profiles, following playbooks)
-  │
-  ├── [Expert] If user corrects Claude:
-  │     └── Skill publishes curated summary
-  │     └── Server extracts profiles + playbooks
-  │
-  └── [Expert] User runs /reflexio-extract (optional):
-        └── Claude summarizes full conversation with reasoning context
-        └── Server extracts profiles + playbooks
+```mermaid
+flowchart TD
+    A["Agent works on task"] --> B["User corrects mistake"]
+    B --> C["Reflexio captures interaction"]
+    C --> D["Server extracts Profiles & Playbooks"]
+    D --> E["Next session: Agent retrieves context"]
+    E --> F["Agent improves — no repeat mistakes"]
+    F --> A
+
+    subgraph "Session Lifecycle"
+        S1["SessionStart hook"] -->|"~10ms, non-blocking"| S2["Server health check"]
+        S2 -->|"Not running"| S3["Start server in background"]
+    end
+
+    subgraph "Per-Message Flow"
+        M1["User sends message"] --> M2["UserPromptSubmit hook"]
+        M2 --> M3["reflexio search"]
+        M3 --> M4["Profiles + Playbooks injected"]
+        M4 --> M5["Claude responds with context"]
+    end
+
+    subgraph "Knowledge Extraction (Expert)"
+        E1["User corrects Claude"] --> E2["Skill publishes summary"]
+        E3["/reflexio-extract command"] --> E4["Full conversation summary"]
+        E2 --> E5["Server extracts profiles + playbooks"]
+        E4 --> E5
+    end
 ```
 
 ### File structure

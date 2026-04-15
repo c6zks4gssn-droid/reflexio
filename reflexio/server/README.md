@@ -1,6 +1,31 @@
 # Reflexio Server
 Description: FastAPI backend server that processes user interactions to generate profiles, extract playbooks, and evaluate agent success
 
+## Table of Contents
+
+- [Main Entry Points](#main-entry-points)
+- [Cache](#cache)
+- [API Endpoints](#api-endpoints)
+- [LLM Client](#llm-client)
+- [Prompts](#prompts)
+- [Site Variables](#site-variables)
+- [Scripts](#scripts)
+- [Services](#services)
+  - [Orchestrator](#orchestrator)
+  - [Base Infrastructure](#base-infrastructure)
+  - [Profile Generation](#profile-generation)
+  - [Playbook Extraction](#playbook-extraction)
+  - [Agent Success Evaluation](#agent-success-evaluation)
+  - [Query Reformulator](#query-reformulator)
+  - [Unified Search Service](#unified-search-service)
+  - [Storage](#storage)
+  - [Configurator](#configurator)
+- [Architecture Patterns](#architecture-patterns)
+  - [Request Flow](#request-flow)
+  - [Service Pattern](#service-pattern)
+  - [Key Rules](#key-rules)
+- [See Also](#see-also)
+
 ## Main Entry Points
 
 - **API**: `api.py` - FastAPI routes (only place to expose endpoints)
@@ -126,6 +151,8 @@ response = client.generate_response("What is 2+2?", response_format=Answer)  # R
 
 **Directory**: `prompt/`
 
+**Detailed Documentation**: See [`prompt/prompt_bank/README.md`](prompt/prompt_bank/README.md) for the versioned template system.
+
 Key components:
 - `prompt_manager.py`: PromptManager for loading and rendering
 - `prompt_bank/`: Templates by prompt_id (metadata.json + version.prompt files)
@@ -136,7 +163,7 @@ Key components:
 
 **Directory**: `site_var/`
 
-See `site_var/README.md` for detailed documentation.
+**Detailed Documentation**: See [`site_var/README.md`](site_var/README.md) for the full configuration and feature flag system.
 
 | File | Purpose |
 |------|---------|
@@ -285,7 +312,7 @@ Users can regenerate and manage profile versions using a four-state system:
 
 **Directory**: `services/feedback/`
 
-See `services/feedback/README.md` for detailed component documentation.
+**Detailed Documentation**: See [`services/playbook/README.md`](services/playbook/README.md) for detailed component documentation.
 
 Key files:
 - `feedback_generation_service.py`: Service orchestrator
@@ -555,3 +582,10 @@ All services follow BaseGenerationService:
 - **NEVER hardcode prompts**
 - **ALWAYS use**: `request_context.prompt_manager.render_prompt(prompt_id, variables)`
 - Prompts versioned in `prompt_bank/`
+
+## See Also
+
+- [Code Map (root README)](../README.md) -- high-level overview of all Reflexio components
+- [Prompt Bank README](prompt/prompt_bank/README.md) -- versioned prompt template system
+- [Playbook Service README](services/playbook/README.md) -- playbook extraction, aggregation, and deduplication pipeline
+- [Site Variables README](site_var/README.md) -- global configuration and feature flags

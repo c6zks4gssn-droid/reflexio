@@ -1,6 +1,31 @@
-# Reflexio Client
+# Reflexio Python SDK
 
-Python SDK for interacting with the [Reflexio](https://www.reflexio.ai/) API. Provides type-safe, sync-first access to user profiles, interactions, playbooks, evaluations, and configuration.
+[![PyPI](https://img.shields.io/pypi/v/reflexio-ai)](https://pypi.org/project/reflexio-ai/)
+[![Python >= 3.12](https://img.shields.io/badge/python-%3E%3D3.12-blue)](https://www.python.org/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/ReflexioAI/reflexio/blob/main/LICENSE)
+[![Downloads](https://static.pepy.tech/badge/reflexio-ai/month)](https://pepy.tech/project/reflexio-ai)
+
+The official Python SDK for [Reflexio](https://www.reflexio.ai/) — the adaptive memory layer for AI agents. Reflexio automatically extracts user profiles, generates playbooks, and evaluates agent performance from conversation data. This client provides type-safe, sync-first access to the full Reflexio API. For source code and contributions, see the [GitHub repository](https://github.com/ReflexioAI/reflexio).
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Authentication](#authentication)
+- [Publishing Interactions](#publishing-interactions)
+- [Profiles](#profiles)
+- [Interactions](#interactions)
+- [Requests & Sessions](#requests--sessions)
+- [Playbooks](#playbooks)
+  - [User Playbooks](#user-playbooks-extracted-from-interactions)
+  - [Agent Playbooks](#agent-playbooks-clustered-insights)
+- [Unified Search](#unified-search)
+- [Evaluation](#evaluation)
+- [Configuration](#configuration)
+- [Bulk Delete Operations](#bulk-delete-operations)
+- [Fire-and-Forget vs Blocking](#fire-and-forget-vs-blocking)
+- [API Reference](#api-reference)
+- [Requirements](#requirements)
 
 ## Installation
 
@@ -273,43 +298,80 @@ In async contexts (e.g., FastAPI), fire-and-forget uses the existing event loop.
 
 ## API Reference
 
+### Interactions
+
 | Method | Description |
 |--------|-------------|
 | `publish_interaction()` | Publish interactions (triggers profile/playbook/evaluation) |
-| `search_profiles()` | Semantic search for profiles |
-| `get_profiles()` | Get profiles for a user |
-| `get_all_profiles()` | Get all profiles across users |
-| `delete_profile()` | Delete profiles by ID or search query |
-| `get_profile_change_log()` | Get profile change history |
-| `rerun_profile_generation()` | Regenerate profiles from interactions |
-| `manual_profile_generation()` | Trigger profile generation with window-sized interactions |
 | `search_interactions()` | Semantic search for interactions |
 | `get_interactions()` | Get interactions for a user |
 | `get_all_interactions()` | Get all interactions across users |
 | `delete_interaction()` | Delete a specific interaction |
-| `get_requests()` | Get requests grouped by session |
-| `delete_request()` | Delete a request and its interactions |
-| `delete_session()` | Delete all requests in a session |
-| `get_user_playbooks()` | Get user playbooks |
-| `search_user_playbooks()` | Search user playbooks |
-| `add_user_playbook()` | Add user playbook directly |
+| `delete_all_interactions()` | Delete all interactions |
+
+### Profiles
+
+| Method | Description |
+|--------|-------------|
+| `search_profiles()` | Semantic search for profiles |
+| `get_profiles()` | Get profiles for a user |
+| `get_all_profiles()` | Get all profiles across users |
+| `delete_profile()` | Delete profiles by ID or search query |
+| `delete_profiles_by_ids()` | Bulk delete profiles by ID |
+| `delete_all_profiles()` | Delete all profiles |
+| `get_profile_change_log()` | Get profile change history |
+| `rerun_profile_generation()` | Regenerate profiles from interactions |
+| `manual_profile_generation()` | Trigger profile generation with window-sized interactions |
+
+### Agent Playbooks
+
+| Method | Description |
+|--------|-------------|
 | `get_agent_playbooks()` | Get agent playbooks |
 | `search_agent_playbooks()` | Search agent playbooks |
 | `add_agent_playbooks()` | Add agent playbooks directly |
+| `run_playbook_aggregation()` | Cluster user playbooks into agent playbooks |
+| `delete_agent_playbooks_by_ids()` | Bulk delete agent playbooks |
+| `delete_all_playbooks()` | Delete all playbooks |
+
+### User Playbooks
+
+| Method | Description |
+|--------|-------------|
+| `get_user_playbooks()` | Get user playbooks |
+| `search_user_playbooks()` | Search user playbooks |
+| `add_user_playbook()` | Add user playbook directly |
 | `rerun_playbook_generation()` | Regenerate playbooks for an agent version |
 | `manual_playbook_generation()` | Trigger playbook generation with window-sized interactions |
-| `run_playbook_aggregation()` | Cluster user playbooks into agent playbooks |
-| `search()` | Unified search across all entity types |
-| `get_agent_success_evaluation_results()` | Get evaluation results |
-| `set_config()` | Update org configuration |
-| `get_config()` | Get current configuration |
-| `delete_requests_by_ids()` | Bulk delete requests |
-| `delete_profiles_by_ids()` | Bulk delete profiles |
-| `delete_agent_playbooks_by_ids()` | Bulk delete agent playbooks |
 | `delete_user_playbooks_by_ids()` | Bulk delete user playbooks |
-| `delete_all_interactions()` | Delete all interactions |
-| `delete_all_profiles()` | Delete all profiles |
-| `delete_all_playbooks()` | Delete all playbooks |
+
+### Requests & Sessions
+
+| Method | Description |
+|--------|-------------|
+| `get_requests()` | Get requests grouped by session |
+| `delete_request()` | Delete a request and its interactions |
+| `delete_session()` | Delete all requests in a session |
+| `delete_requests_by_ids()` | Bulk delete requests by ID |
+
+### Search
+
+| Method | Description |
+|--------|-------------|
+| `search()` | Unified search across all entity types |
+
+### Evaluation
+
+| Method | Description |
+|--------|-------------|
+| `get_agent_success_evaluation_results()` | Get evaluation results |
+
+### Configuration
+
+| Method | Description |
+|--------|-------------|
+| `get_config()` | Get current configuration |
+| `set_config()` | Update org configuration |
 
 ## Requirements
 

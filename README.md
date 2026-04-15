@@ -19,7 +19,7 @@
 ---
 
 <p align="center">
-  <b>−81% planning steps</b> &nbsp;·&nbsp; <b>−72% tokens</b> &nbsp;·&nbsp; on real GDPVal knowledge-work tasks, <br/>
+  <b>81% fewer planning steps</b> &nbsp;·&nbsp; <b>72% less tokens</b> &nbsp;·&nbsp; on real GDPVal knowledge-work tasks, <br/>
   <i>on top of</i> what a SOTA self-improving Hermes agent already learns on its own.<br/>
   <a href="benchmark/gdpval/RESULTS.md"><b>See the benchmark →</b></a>
 </p>

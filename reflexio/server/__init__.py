@@ -75,12 +75,17 @@ DEBUG_LOG_TO_CONSOLE = os.environ.get("DEBUG_LOG_TO_CONSOLE", "").strip().lower(
 root_logger = logging.getLogger()
 
 if DEBUG_LOG_TO_CONSOLE and DEBUG_LOG_TO_CONSOLE not in ("false", "0", "no"):
+    # Correlation ID filter — injects %(correlation_id)s into every record
+    from reflexio.server.correlation import CorrelationIdFilter
+
+    _cid_filter = CorrelationIdFilter()
+
     # Enable verbose logging to console with colored output
     if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)  # Excludes LLM_PROMPT (level 15)
         formatter = colorlog.ColoredFormatter(
-            "%(log_color)s%(name)s - %(levelname)s - %(message)s",
+            "%(log_color)s[%(correlation_id)s] %(name)s - %(levelname)s - %(message)s",
             log_colors={
                 "DEBUG": "cyan",
                 "INFO": "reset",
@@ -97,6 +102,7 @@ if DEBUG_LOG_TO_CONSOLE and DEBUG_LOG_TO_CONSOLE not in ("false", "0", "no"):
         from reflexio.cli.log_format import DuplicateFilter
 
         console_handler.addFilter(DuplicateFilter(window_seconds=5))
+        console_handler.addFilter(_cid_filter)
         root_logger.addHandler(console_handler)
 
     # File handlers
@@ -111,9 +117,12 @@ if DEBUG_LOG_TO_CONSOLE and DEBUG_LOG_TO_CONSOLE not in ("false", "0", "no"):
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        logging.Formatter(
+            "%(asctime)s [%(correlation_id)s] %(name)s %(levelname)s %(message)s"
+        )
     )
     file_handler.addFilter(_ExcludeLLMPrompt())
+    file_handler.addFilter(_cid_filter)
     root_logger.addHandler(file_handler)
 
     # LLM I/O log file — only LLM_PROMPT level, with structured delimiters

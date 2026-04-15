@@ -2,6 +2,7 @@
 Base class for generation services
 """
 
+import contextvars
 import logging
 import os
 import time
@@ -542,7 +543,9 @@ class BaseGenerationService(
             executor: ThreadPoolExecutor | None = None
             try:
                 executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(extractor.run)  # type: ignore[reportAttributeAccessIssue]
+                # Copy context so correlation ID propagates to worker thread
+                ctx = contextvars.copy_context()
+                future = executor.submit(ctx.run, extractor.run)  # type: ignore[reportAttributeAccessIssue]
                 result = future.result(timeout=EXTRACTOR_TIMEOUT_SECONDS)
                 if result:
                     all_results.append(result)

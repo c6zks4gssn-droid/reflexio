@@ -121,6 +121,7 @@ from reflexio.server.cache.reflexio_cache import (
     get_reflexio,
     invalidate_reflexio_cache,
 )
+from reflexio.server.correlation import correlation_id_var, generate_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,24 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 content={"detail": "Request timeout"},
             )
+
+
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Middleware that assigns a unique correlation ID to each request.
+
+    The ID is stored in a ContextVar so it propagates to log records
+    (via CorrelationIdFilter) and to ThreadPoolExecutor workers when
+    ``contextvars.copy_context()`` is used.
+    """
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        cid = generate_correlation_id()
+        correlation_id_var.set(cid)
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = cid
+        return response
 
 
 DEFAULT_ORG_ID = "self-host-org"
@@ -1638,6 +1657,9 @@ def create_app(
 
     # Bot protection
     app.add_middleware(BotProtectionMiddleware)
+
+    # Correlation ID — added last so it runs outermost (Starlette reverses order)
+    app.add_middleware(CorrelationIdMiddleware)
 
     # Override get_org_id dependency if custom one provided
     if get_org_id is not None:

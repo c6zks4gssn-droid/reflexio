@@ -42,6 +42,8 @@ flowchart TD
     A3 --> R3
 ```
 
+
+
 The integration has three independent mechanisms:
 
 ### 1. Capture (Hook — automatic, runs every session)
@@ -121,7 +123,7 @@ Each OpenClaw agent (identified by its `agentId`) is treated as a distinct Refle
 
 - **User playbooks**: per-agent corrections, isolated by `agentId`. Mistakes made by `main` are tracked separately from mistakes made by `work`.
 - **Agent playbooks**: shared corrections aggregated from ALL agents. Once a correction is aggregated and approved, every instance sees it via `reflexio search`.
-- **`user_id`** is auto-derived from the session key or OpenClaw config. Set `REFLEXIO_USER_ID` to override it for all agents.
+- **`user_id`** is derived from the OpenClaw session key prefix (`agent:<id>:...`). There is no override — the hook is deliberately locked to sessionKey-derived identity to eliminate env-var reads.
 
 ## Agent Playbooks
 
@@ -142,65 +144,66 @@ This means a correction made once by any instance eventually prevents the same m
 ## Prerequisites
 
 - [OpenClaw](https://openclaw.ai) installed and running
-- The `reflexio` CLI on PATH: `pip install reflexio`
-- A running Reflexio server (local or remote)
-- For cloud/Supabase mode: `REFLEXIO_API_KEY` environment variable set
+- The `reflexio` CLI on PATH: `pipx install reflexio-ai` (or `pip install --user reflexio-ai`)
+- The local Reflexio server running at `127.0.0.1:8081` (the hook starts it automatically if it's down)
 
-**Reflexio server also requires an LLM API key** (e.g., `OPENAI_API_KEY`) in the `.env` file for playbook extraction. Supported providers: OpenAI, Anthropic, Google Gemini, DeepSeek, OpenRouter, MiniMax, DashScope, xAI, Moonshot, ZAI.
+**The Reflexio server requires an LLM API key** (e.g., `OPENAI_API_KEY`) in `~/.reflexio/.env` for playbook extraction — that key is read by the server process, never by this hook. Supported providers: OpenAI, Anthropic, Google Gemini, DeepSeek, OpenRouter, MiniMax, DashScope, xAI, Moonshot, ZAI.
 
 > Run `reflexio setup openclaw` to automate LLM provider selection, storage configuration, and hook/skill/command installation.
 
 ## Installation
 
-### Hook (automatic capture + retrieval)
+### Option 1 — ClawHub (recommended)
 
 ```bash
-# Install the hook
+clawhub skill install reflexio
+```
+
+On first use, the skill auto-installs the `reflexio-ai` CLI (via `pipx` or `pip`) and runs `reflexio setup openclaw` to activate the hook, slash commands, and workspace rule.
+
+### Option 2 — Automated setup (if you already have `reflexio-ai` installed)
+
+```bash
+pip install reflexio-ai
+reflexio setup openclaw
+```
+
+This installs the hook, copies the skill and commands to `~/.openclaw/skills/`, and drops the workspace rule into `~/.openclaw/workspace/`.
+
+### Option 3 — Manual (for developing against source)
+
+```bash
+# Hook: automatic capture + retrieval
 openclaw hooks install /path/to/reflexio/integrations/openclaw/hook --link
 openclaw hooks enable reflexio-context
 openclaw gateway restart
+openclaw hooks list  # expect: ✓ ready │ 🧠 reflexio-context
 
-# Verify
-openclaw hooks list
-# Should show: ✓ ready │ 🧠 reflexio-context
-```
-
-### Skill + Commands (on-demand search + aggregation)
-
-```bash
 # Skill: teaches agent when/how to use reflexio CLI
 cp -r /path/to/openclaw/skill ~/.openclaw/skills/reflexio
 
-# Command: publish corrections mid-session
+# Commands: publish corrections mid-session, trigger aggregation
 cp -r /path/to/openclaw/commands/reflexio-extract ~/.openclaw/skills/reflexio-extract
-
-# Command: trigger aggregation manually
 cp -r /path/to/openclaw/commands/reflexio-aggregate ~/.openclaw/skills/reflexio-aggregate
-```
 
-### Rule (always-active behavioral constraints)
-
-```bash
-# Copy to default workspace — loaded at every session start
+# Rule: always-active behavioral constraints — loaded every session
 cp /path/to/openclaw/rules/reflexio.md ~/.openclaw/workspace/reflexio.md
 ```
 
 The rule ensures the agent follows injected Reflexio context, runs manual search fallback when the hook doesn't fire, and enforces behavioral conventions (transparency, non-blocking, silent infrastructure).
 
-Or run the automated setup which handles all of the above:
-
-```bash
-reflexio setup openclaw
-```
-
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REFLEXIO_USER_ID` | auto (from agentId) | Override user ID for all agents. Useful when you want all agents to share a single user identity. |
-| `REFLEXIO_AGENT_VERSION` | `openclaw-agent` | Label identifying your agent version. Agent playbooks are scoped by this tag. |
-| `REFLEXIO_URL` | `http://127.0.0.1:8081` | Reflexio server URL |
-| `REFLEXIO_API_KEY` | — | Required for cloud/Supabase mode. Not needed for local/SQLite. |
+This integration is **localhost-only**. The hook hard-codes the Reflexio
+server URL to `http://127.0.0.1:8081` and reads no environment variables —
+it cannot be reconfigured to send data off-host. The agent label is hardcoded
+to `openclaw-agent` and the per-agent user ID is derived from OpenClaw's
+session key (`agent:<id>:...` prefix), with a fallback of `openclaw`.
+
+If you need remote Reflexio (managed or self-hosted) from OpenClaw, use the
+Claude Code integration instead — it supports a full set of env vars for
+pointing at external servers.
+
 
 ## Scheduled Aggregation
 
@@ -238,6 +241,7 @@ If OpenClaw supports scheduled tasks natively, you can also register aggregation
 - Corrections from one agent instance propagate to all instances via aggregation
 
 **The learning loop:**
+
 1. Agent works on a task → user corrects a mistake
 2. Session ends → hook captures full conversation → server extracts user playbooks
 3. Next session, similar task → agent searches → gets the correction → applies the behavioral guideline
@@ -268,15 +272,17 @@ See [TESTING.md](TESTING.md) for a step-by-step guide to manually test the integ
 
 ## Comparison with Claude Code / LangChain Integrations
 
-| Aspect | OpenClaw | Claude Code | LangChain |
-|--------|----------|-------------|-----------|
-| Integration method | CLI commands + hooks | CLI commands + hooks | Python SDK + callbacks |
-| Context retrieval | Per-message (hook) + per-task (skill) | Per-task via skill | Per-LLM-call via middleware (automatic) |
-| Conversation capture | Hook buffers → SQLite → flushes at session end | Hook buffers → SQLite → flushes at session end | Callback captures per chain run |
-| Multi-user support | Yes — per-agentId user isolation | Yes — per-agent user isolation | Single user per client instance |
-| Agent playbooks | Yes — aggregated across all instances | Yes — aggregated across all instances | Not yet |
-| Agent teaching | SKILL.md (natural language) | SKILL.md (natural language) | Tool definition (structured) |
-| Dependencies | `reflexio` CLI only | `reflexio` CLI only | `langchain-core >= 0.3.0` |
+
+| Aspect               | OpenClaw                                       | Claude Code                                    | LangChain                               |
+| -------------------- | ---------------------------------------------- | ---------------------------------------------- | --------------------------------------- |
+| Integration method   | CLI commands + hooks                           | CLI commands + hooks                           | Python SDK + callbacks                  |
+| Context retrieval    | Per-message (hook) + per-task (skill)          | Per-task via skill                             | Per-LLM-call via middleware (automatic) |
+| Conversation capture | Hook buffers → SQLite → flushes at session end | Hook buffers → SQLite → flushes at session end | Callback captures per chain run         |
+| Multi-user support   | Yes — per-agentId user isolation               | Yes — per-agent user isolation                 | Single user per client instance         |
+| Agent playbooks      | Yes — aggregated across all instances          | Yes — aggregated across all instances          | Not yet                                 |
+| Agent teaching       | SKILL.md (natural language)                    | SKILL.md (natural language)                    | Tool definition (structured)            |
+| Dependencies         | `reflexio` CLI only                            | `reflexio` CLI only                            | `langchain-core >= 0.3.0`               |
+
 
 All integrations connect to the same Reflexio server and share the same playbook/profile data. Agent playbooks aggregated from OpenClaw instances are visible to Claude Code agents, and vice versa, as long as they use the same `--agent-version` tag.
 
@@ -284,3 +290,4 @@ All integrations connect to the same Reflexio server and share the same playbook
 
 - [Reflexio main README](../../../../README.md)
 - [Python SDK documentation](../../../client_dist/README.md)
+

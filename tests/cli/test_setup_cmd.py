@@ -13,6 +13,7 @@ from reflexio.cli.commands.setup_cmd import (
     InstallLocation,
     _detect_install_locations,
     _install_claude_code_integration,
+    _install_openclaw_integration,
     _prompt_install_location,
     _prompt_storage,
     _remove_from_dir,
@@ -438,3 +439,98 @@ class TestClaudeCodeSetupFlags:
                 project_dir=Path("/tmp"),
                 global_install=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# _install_openclaw_integration — ClawHub-vs-pip skill ownership
+# ---------------------------------------------------------------------------
+
+
+def _make_openclaw_subprocess_stub() -> MagicMock:
+    """Build a subprocess.run stub that fakes success for every openclaw call.
+
+    The three calls made by ``_install_openclaw_integration`` are:
+    ``plugins install``, ``hooks enable``, and ``hooks list`` (the last one
+    must return 'reflexio-context' in stdout to pass the verify step).
+
+    Returns:
+        MagicMock: A mock usable as ``subprocess.run`` replacement.
+    """
+
+    def _run(cmd: list[str], **_: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        result.stdout = "✓ ready │ reflexio-context" if "list" in cmd else ""
+        return result
+
+    return MagicMock(side_effect=_run)
+
+
+class TestInstallOpenclawIntegration:
+    """Regression tests for the ClawHub-vs-pip skill-ownership guard."""
+
+    def test_preserves_clawhub_installed_skill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If _meta.json is present, the existing SKILL.md is not overwritten.
+
+        Simulates a user who first installed via ``clawhub skill install
+        reflexio`` and then runs ``reflexio setup openclaw``. ClawHub's
+        copy should survive untouched.
+        """
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        skills_dir = tmp_path / ".openclaw" / "skills" / "reflexio"
+        skills_dir.mkdir(parents=True)
+        sentinel = "CLAWHUB_INSTALLED_SENTINEL_DO_NOT_OVERWRITE"
+        (skills_dir / "SKILL.md").write_text(sentinel)
+        (skills_dir / "_meta.json").write_text(
+            '{"ownerId":"x","slug":"reflexio","version":"1.0.0"}'
+        )
+
+        with (
+            patch("reflexio.cli.commands.setup_cmd.shutil.which", return_value="/usr/bin/openclaw"),
+            patch(
+                "reflexio.cli.commands.setup_cmd.subprocess.run",
+                _make_openclaw_subprocess_stub(),
+            ),
+        ):
+            _install_openclaw_integration()
+
+        assert (skills_dir / "SKILL.md").read_text() == sentinel
+        assert (skills_dir / "_meta.json").exists()
+
+    def test_refreshes_pip_installed_skill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If _meta.json is absent, an existing SKILL.md is always replaced.
+
+        Regression test for the upgrade path: ``pip install --upgrade
+        reflexio-ai && reflexio setup openclaw`` must refresh stale skill
+        content from a prior pip install.
+        """
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        skills_dir = tmp_path / ".openclaw" / "skills" / "reflexio"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text("STALE_PIP_INSTALLED_CONTENT")
+
+        with (
+            patch("reflexio.cli.commands.setup_cmd.shutil.which", return_value="/usr/bin/openclaw"),
+            patch(
+                "reflexio.cli.commands.setup_cmd.subprocess.run",
+                _make_openclaw_subprocess_stub(),
+            ),
+        ):
+            _install_openclaw_integration()
+
+        import reflexio
+
+        source_skill = (
+            Path(reflexio.__file__).parent
+            / "integrations"
+            / "openclaw"
+            / "skill"
+            / "SKILL.md"
+        )
+        assert (skills_dir / "SKILL.md").read_text() == source_skill.read_text()
+        assert "STALE_PIP_INSTALLED_CONTENT" not in (skills_dir / "SKILL.md").read_text()

@@ -25,27 +25,19 @@ Skip routine pleasantries, but do **NOT** skip failures, rejections, or anomalie
 
 ## How to Publish
 
-1. Ensure the server is running **(local server only)**:
+1. Ensure the local Reflexio server is running. This integration always talks to `http://127.0.0.1:8081` — it does not support remote servers.
 
-Check the `REFLEXIO_URL` environment variable. If it points to a remote server (not `localhost` or `127.0.0.1`), skip this step — managed Reflexio servers are always running.
-
-For local servers (`REFLEXIO_URL` unset or pointing to localhost/127.0.0.1):
 ```bash
 reflexio status check
 ```
-If not running, start it:
+
+If not running, tell the user you're starting it in the background, then:
 ```bash
 nohup reflexio services start --only backend > ~/.reflexio/logs/server.log 2>&1 &
 sleep 5
 ```
 
-2. Determine the user ID. Check the `REFLEXIO_USER_ID` environment variable:
-
-```bash
-echo $REFLEXIO_USER_ID
-```
-
-If set, use that value as `user_id`. If unset, use your own agent identity (e.g. the agent name or instance identifier configured for this OpenClaw agent).
+2. Use your own agent identity as `user_id` — the agent name or instance identifier configured for this OpenClaw agent. The Reflexio CLI will auto-derive it from OpenClaw's session key if you leave it out of the payload.
 
 3. Write the summary as a JSON file. **Pattern-match on the shape below**: a single assistant turn captures one coherent learning; failed attempts plus the eventual success live together as an ordered list in `tools_used` so the failure → recovery arc reads as one unit. Self-corrections belong **verbatim** inside the `content` field:
 

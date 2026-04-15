@@ -395,11 +395,17 @@ def _install_openclaw_integration() -> bool:
         typer.echo(f"Error: openclaw command failed: {exc.stderr or exc.stdout}")
         raise typer.Exit(1) from exc
 
-    # Copy skill directory
+    # Copy skill directory. ClawHub drops `_meta.json` at the skill root on
+    # install — if that's present, don't clobber the user's ClawHub-installed
+    # copy. Otherwise always refresh (so `pip install --upgrade reflexio-ai &&
+    # reflexio setup openclaw` stays the normal upgrade flow).
     workspace_skills = Path.home() / ".openclaw" / "skills" / "reflexio"
-    if workspace_skills.exists():
-        shutil.rmtree(workspace_skills)
-    shutil.copytree(skill_dir, workspace_skills)
+    if (workspace_skills / "_meta.json").exists():
+        typer.echo(f"ClawHub-installed skill at {workspace_skills} — skipping refresh")
+    else:
+        if workspace_skills.exists():
+            shutil.rmtree(workspace_skills)
+        shutil.copytree(skill_dir, workspace_skills)
 
     # Copy each command directory to ~/.openclaw/skills/<command-name>
     if commands_dir.exists():

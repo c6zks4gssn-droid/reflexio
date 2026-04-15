@@ -171,6 +171,13 @@ def add(
         str | None,
         typer.Option("--rationale", help="Why this playbook matters"),
     ] = None,
+    agent_version: Annotated[
+        str | None,
+        typer.Option(
+            "--agent-version",
+            help="Agent version to tag this playbook with (defaults to 'cli')",
+        ),
+    ] = None,
 ) -> None:
     """Add a manual user playbook entry.
 
@@ -182,6 +189,9 @@ def add(
         instruction: What to do
         pitfall: What not to do
         rationale: Why this playbook matters
+        agent_version: Agent version label to scope the playbook to;
+            defaults to "cli" so CLI-authored entries stay isolated from
+            integration-authored ones (e.g. ``openclaw-agent``).
     """
     from reflexio.models.api_schema.service_schemas import StructuredData, UserPlaybook
 
@@ -192,7 +202,7 @@ def add(
         rationale=rationale,
     )
     playbook = UserPlaybook(
-        agent_version="cli",
+        agent_version=agent_version or "cli",
         request_id="cli-manual",
         playbook_name=playbook_name,
         content=content,

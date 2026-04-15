@@ -1,6 +1,6 @@
 ---
 name: reflexio
-description: "Search Reflexio for task-specific playbooks before working, AND publish corrections, preferences, and learnings to Reflexio. Retrieves behavioral rules so you follow them from the start. Publishes when users correct you, state preferences, or you complete key steps with learnings. Use on ANY task."
+description: "Self-improving OpenClaw agents via Reflexio cross-session memory: the agent learns from every correction, tool failure, and stated preference so it stops repeating the same mistakes. Searches past playbooks before each task, captures new learnings after — and cross-instance aggregation turns one agent's correction into shared knowledge for every other agent. The hook is hard-pinned to a local Reflexio server at 127.0.0.1:8081 (no remote endpoints). That local server performs LLM-based extraction using whatever provider you configure in ~/.reflexio/.env, so extracted summaries may reach third-party APIs — see Privacy section before enabling."
 ---
 
 # Reflexio: Learn from Past Sessions
@@ -15,18 +15,72 @@ The user can also run `/reflexio-extract` for comprehensive extraction of all se
 
 ---
 
+## Privacy & Data Collection
+
+**Read this before enabling the skill.** Reflexio causes the agent to automatically capture conversations and forward them to a local Reflexio server for extraction and storage. Treat the following as material privacy information, not incidental detail.
+
+### Credential requirement (not declared in skill metadata — important)
+
+The skill itself declares no required environment variables and the hook reads none. **But the end-to-end system does require an LLM provider API key**, and you will be asked for one during First-Use Setup:
+
+- `reflexio setup openclaw` runs an interactive wizard that prompts you to choose an LLM provider (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, MiniMax, DashScope, xAI, Moonshot, ZAI, or any local provider via LiteLLM) and paste an API key.
+- The key is written to `~/.reflexio/.env`. The local Reflexio server reads it when extracting playbooks and profiles from captured conversations.
+- **The hook itself never reads this key or sees the contents of `~/.reflexio/.env`.** That's a property of the hook code, which has no filesystem config reads and no environment variable access at all. But the *server* the hook POSTs to does read the key, so from a "what credentials will I end up providing to make this work" perspective, treat the LLM provider key as a required dependency of the skill.
+- **If you want fully offline operation, point the wizard at a local LLM** (Ollama at `http://127.0.0.1:11434`, LM Studio, vLLM, etc.) instead of a hosted provider. The wizard accepts any LiteLLM-compatible base URL.
+
+This credential is not declared in the skill's registry metadata because metadata-level `requires.env` only applies to the hook's own runtime reads, and the hook is deliberately stateless. But you should know it's coming before you install.
+
+### Two distinct network hops — know the difference
+
+1. **The hook → the local Reflexio server (always localhost).**
+   The hook is hard-pinned to `http://127.0.0.1:8081`. It communicates via native `fetch()` with no configuration knobs; the destination is a hardcoded constant in `handler.js`. It reads no environment variables and no dotfiles. This hop cannot leave your machine.
+
+2. **The local Reflexio server → an LLM provider (may leave your machine).**
+   The server uses an LLM provider (configured via `~/.reflexio/.env`) to extract playbooks and profiles from captured conversations. That provider is whichever one you set — OpenAI, Anthropic, Gemini, DeepSeek, etc. If you configured an external provider, **excerpts of your conversations will be sent to that provider** as part of extraction. The primary conversation text is stored locally in SQLite at `~/.reflexio/` and is not sent to the provider directly, but the extracted summaries, trigger texts, and sample content are.
+
+If you want a fully offline setup, point `~/.reflexio/.env` at a local LLM (Ollama, LM Studio, vLLM, etc.) before enabling the hook. If you haven't audited that configuration, assume extraction forwards sensitive content to a third-party API.
+
+**Localhost-only is a property of the hook, not the full system.** Earlier drafts of this documentation framed the integration as fully local. That framing was incomplete — it described the hook's network boundary correctly but ignored that the local Reflexio server then makes its own outbound LLM calls during extraction. The accurate statement is: the *hook* has no off-host destination, but the *server behind it* forwards excerpts to whichever LLM provider you configured.
+
+If you want remote Reflexio (managed or self-hosted) from OpenClaw, this integration is not the one to use — it is deliberately crippled to localhost at the hook level. Use the Claude Code integration instead, which supports remote servers via `REFLEXIO_URL`.
+
+**What is captured (locally)**
+
+- Full message content — every user turn and every assistant turn in the session
+- Every tool call, its inputs, and its outputs — including **failed tool calls and the exact error strings**
+- Self-corrections written out loud mid-response ("actually, this isn't quite right because…") — these are preserved verbatim because they're the most valuable learning signal, but they also surface internal reasoning
+- User profile signals the local extraction pipeline infers from the conversation: expertise, working style, project conventions
+
+None of this is scrubbed for PII, credentials, file paths, stack traces, or API outputs. Anything that appears in the conversation ends up in the local database. If you work on sensitive tasks, disable the hook before starting them, or tell the agent mid-task to stop logging.
+
+**How to disable**
+
+- **Per-session opt-out:** `openclaw hooks disable reflexio-context` — stops automatic capture immediately. Skill-driven search and publish commands still work until the agent stops calling them.
+- **Full uninstall:** `reflexio setup openclaw --uninstall` — removes the hook, slash commands, and workspace rule.
+- **Search-only mode** (keep retrieval, stop auto-capture): edit `hook/handler.js` to remove the `command:stop` event handler, then reinstall. The `message:received` injection continues working without buffering turns to the database.
+- **Wipe stored data:** delete `~/.reflexio/sessions.db` (buffered turns) and `~/.reflexio/` (full local store including extracted playbooks).
+- **Sensitive-task-only opt-out:** tell the agent at the start of the task. The workspace rule instructs it to honor the objection — skip search, skip capture, skip local server start — for the rest of the session.
+
+**Transparency expectations**
+
+- On the first turn of a session, the agent should briefly tell you that Reflexio is active and that it captures conversations into a local SQLite database on your machine. One or two sentences.
+- If the agent needs to start the local Reflexio server in the background, it should announce that before launching the process.
+- If you see a `REFLEXIO_CONTEXT.md` block in the agent's context, that's injected past-session memory driving the response. You can ask the agent to ignore it.
+
+These expectations are enforced by the workspace rule at `~/.openclaw/workspace/reflexio.md`. If a deployment wants stricter silence or stricter disclosure, edit that file.
+
+---
+
 ## Step-by-Step: When User Gives a Task
 
 Follow these steps IN ORDER:
 
-**Step 1 — Ensure server is running (local server only):**
-Check the `REFLEXIO_URL` environment variable. If it points to a remote server (anything other than `localhost` or `127.0.0.1`), **skip this step entirely** — managed Reflexio servers are always running. Go directly to Step 2.
-
-If `REFLEXIO_URL` is unset or points to localhost/127.0.0.1:
+**Step 1 — Ensure the local Reflexio server is running:**
+This integration always talks to the local Reflexio server at `127.0.0.1:8081`. Check that it's running:
 ```bash
 reflexio status check
 ```
-If this fails with a connection error, start the server in the background:
+If this fails with a connection error, tell the user you're starting the local Reflexio server in the background, then run:
 ```bash
 nohup reflexio services start --only backend > ~/.reflexio/logs/server.log 2>&1 &
 sleep 5 && reflexio status check
@@ -35,9 +89,9 @@ Then continue to Step 2 immediately.
 
 **Step 2 — Search for relevant corrections:**
 ```bash
-reflexio search "<the user's request or task description>" --user-id $REFLEXIO_USER_ID
+reflexio search "<the user's request or task description>"
 ```
-Use the user's actual request as the query — not keywords. Different tasks return different playbooks.
+Use the user's actual request as the query — not keywords. Different tasks return different playbooks. The server auto-scopes results to the current agent via OpenClaw's session key.
 
 **Step 3 — Apply results and do the task:**
 - If search returned playbooks → follow the instructions, avoid the pitfalls
@@ -82,7 +136,7 @@ cat > /tmp/reflexio-summary.json << 'SUMMARY_EOF'
   ]
 }
 SUMMARY_EOF
-reflexio publish --user-id $REFLEXIO_USER_ID --agent-version openclaw-agent --source openclaw --skip-aggregation --force-extraction --file /tmp/reflexio-summary.json && rm -f /tmp/reflexio-summary.json
+reflexio publish --agent-version openclaw-agent --source openclaw --skip-aggregation --force-extraction --file /tmp/reflexio-summary.json && rm -f /tmp/reflexio-summary.json
 ```
 
 `tools_used` is **required** whenever the original approach involved a failed or rejected tool call — the error string is the evidence Reflexio needs to extract a precise behavioral rule. For pure-text corrections, the field can be omitted.
@@ -124,7 +178,7 @@ Each OpenClaw agent instance is a unique Reflexio user, identified by its `agent
 
 `reflexio search` returns both user playbooks (instance-specific) and agent playbooks (shared across all instances) — so every agent instance benefits from the collective learning.
 
-The `user_id` field in publish commands is auto-derived from OpenClaw's `agentId`. Use `$REFLEXIO_USER_ID` or the agentId directly.
+The `user_id` field in publish payloads is auto-derived from OpenClaw's session key (the `agentId` prefix). You don't need to set it manually.
 
 ---
 
@@ -152,13 +206,13 @@ The Reflexio server LLM analyzes your published summary and determines what gets
 
 ## Server Management
 
-**Managed Reflexio (remote server):** If `REFLEXIO_URL` points to a non-localhost URL, the server is always running. Do NOT attempt to start it. If a command fails with a connection error, report it to the user — it's a network or configuration issue.
+This integration always talks to the local Reflexio server at `http://127.0.0.1:8081`. There is no remote-server mode — the hook is hard-pinned to loopback at the code level.
 
-**Local server** (`REFLEXIO_URL` unset or pointing to localhost/127.0.0.1):
 - **Check:** `reflexio status check`
 - **Start (background):** `nohup reflexio services start --only backend > ~/.reflexio/logs/server.log 2>&1 &`
-- Never ask the user to start the server — handle it silently
-- If `reflexio` is not found, ask the user to install it: `pip install reflexio-ai`
+- **Before starting it, tell the user briefly.** One sentence is enough: "Starting the local Reflexio server in the background so I can fetch your past-session memory." Do not launch processes on the user's machine without telling them first.
+- If the user objects, skip the server start and proceed without Reflexio for this session.
+- If `reflexio` is not found, ask the user to install it: `pipx install reflexio-ai` (or `pip install --user reflexio-ai`)
 
 ---
 
@@ -183,5 +237,6 @@ The Reflexio server LLM analyzes your published summary and determines what gets
 - **Preserve the user's exact words** in correction summaries
 - **Include evidence** — tool failures, error messages, self-correction sentences. Without evidence, Reflexio extracts vague profile entries; with evidence, it extracts precise playbook rules
 - **If Reflexio is unreachable, proceed normally** — it enhances but never blocks
-- **Don't mention Reflexio to the user** unless they ask
+- **Tell the user Reflexio is active at session start** (see Privacy & Data Collection above). Cross-session logging is not something to leave implicit.
+- **Honor sensitive-task objections** — if the user says "don't log this," stop all Reflexio calls (search, publish, server start) for the rest of the session
 - **Suggest `/reflexio-extract`** if a session had many corrections or learnings

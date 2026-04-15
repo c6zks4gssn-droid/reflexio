@@ -15,15 +15,12 @@ This means a correction one agent learned from one user can benefit every agent 
 
 ## How to Aggregate
 
-1. Ensure the server is running **(local server only)**:
+1. Ensure the local Reflexio server is running. This integration always talks to `http://127.0.0.1:8081`:
 
-Check the `REFLEXIO_URL` environment variable. If it points to a remote server (not `localhost` or `127.0.0.1`), skip this step — managed Reflexio servers are always running.
-
-For local servers:
 ```bash
 reflexio status check
 ```
-If not running, start it:
+If not running, tell the user you're starting it in the background, then:
 ```bash
 nohup reflexio services start --only backend > ~/.reflexio/logs/server.log 2>&1 &
 sleep 5

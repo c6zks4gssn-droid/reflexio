@@ -40,6 +40,7 @@ dependencies = [
     # CLI
     "typer>=0.15.0",
     "rich>=13.0.0",
+    "pandas>=3.0.2",
 ]
 
 [project.optional-dependencies]

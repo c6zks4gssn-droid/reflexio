@@ -913,6 +913,11 @@ class TestBuildUserPlaybook:
         )
 
         assert len(result) == 2
+        triggers = {p.trigger for p in result}
+        assert triggers == {
+            "user asks for help debugging an error",
+            "agent provides a factual correction during debugging",
+        }
         assert all(p.source_interaction_ids == [1, 2, 3] for p in result)
         assert all(p.playbook_name == extractor_config.extractor_name for p in result)
 

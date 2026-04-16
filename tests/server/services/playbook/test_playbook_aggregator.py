@@ -1205,4 +1205,5 @@ class TestProcessAggregationResponse:
 
         assert result is not None
         assert result.trigger == "when testing"
+        assert result.content == "do something"
         assert result.playbook_status == PlaybookStatus.PENDING

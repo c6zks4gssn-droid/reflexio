@@ -334,6 +334,38 @@ class TestInstallClaudeCodeIntegration:
         assert "SessionStart" in settings["hooks"]
         assert "UserPromptSubmit" in settings["hooks"]
 
+    def test_normal_mode_no_stop_hook(self, tmp_path: Path) -> None:
+        """Normal mode does not install the Stop hook."""
+        _install_claude_code_integration(
+            tmp_path, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "Stop" not in settings["hooks"]
+
+    def test_expert_mode_installs_stop_hook(self, tmp_path: Path) -> None:
+        """Expert mode installs the Stop hook alongside SessionStart and UserPromptSubmit."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "Stop" in settings["hooks"]
+        assert len(settings["hooks"]["Stop"]) == 1
+        # Verify the Stop hook command points to handler.js
+        stop_cmd = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+        assert "handler.js" in stop_cmd
+        assert stop_cmd.startswith("node ")
+
+    def test_expert_mode_stop_hook_idempotent(self, tmp_path: Path) -> None:
+        """Running expert install twice doesn't duplicate the Stop hook."""
+        for _ in range(2):
+            _install_claude_code_integration(
+                tmp_path, expert=True, location=InstallLocation.ALL_PROJECTS
+            )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert len(settings["hooks"]["Stop"]) == 1
+        assert len(settings["hooks"]["SessionStart"]) == 1
+        assert len(settings["hooks"]["UserPromptSubmit"]) == 1
+
     def test_idempotent_install(self, tmp_path: Path) -> None:
         """Running install twice doesn't corrupt files or duplicate hooks."""
         for _ in range(2):
@@ -413,6 +445,20 @@ class TestUninstallDetection:
         # settings.json should have empty hooks
         settings = json.loads((claude_dir / "settings.json").read_text())
         assert "hooks" not in settings or not settings.get("hooks")
+
+    def test_remove_from_dir_cleans_stop_hook(self, tmp_path: Path) -> None:
+        """Uninstall removes the Stop hook installed by expert mode."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        assert "Stop" in settings["hooks"]
+
+        _remove_from_dir(tmp_path)
+
+        settings = json.loads(settings_path.read_text())
+        assert "hooks" not in settings or "Stop" not in settings.get("hooks", {})
 
     def test_marker_file_metadata(self, tmp_path: Path) -> None:
         """Marker file contains location and installed_at fields."""

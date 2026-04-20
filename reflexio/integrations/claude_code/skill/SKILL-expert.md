@@ -1,6 +1,6 @@
 ---
 name: reflexio-expert
-description: "Search past session memory for user corrections, preferences, and project conventions, AND publish new corrections when the user says 'no, do X instead' or states a preference. Retrieves behavioral rules (e.g. 'always use type hints', 'use pnpm not npm') so you follow them from the start. Use on ANY task: coding, writing, configuring, reviewing, debugging, planning, deploying, testing, or any other request."
+description: "Search past session memory for user corrections, preferences, and project conventions. Publish corrections when the user says 'no, do X instead' or states a preference. Proactively publish high-signal moments: self-recovered tool failures, retry chains, documentation gaps, workarounds, and anomalous results. Suggest /reflexio-extract at end of session when friction occurred. Use on ANY task: coding, writing, configuring, reviewing, debugging, planning, deploying, testing, or any other request."
 ---
 
 # Reflexio: Learn from Past Sessions (Expert)

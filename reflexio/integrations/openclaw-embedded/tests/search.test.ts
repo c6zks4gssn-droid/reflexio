@@ -10,7 +10,8 @@ function createMockRunner(
   return async (argv) => {
     if (argv.includes("infer")) {
       if (inferResult === null) throw new Error("infer failed");
-      return { stdout: inferResult, stderr: "", code: 0 };
+      const envelope = JSON.stringify({ ok: true, outputs: [{ text: inferResult }] });
+      return { stdout: envelope, stderr: "", code: 0 };
     }
     if (argv.includes("memory") && argv.includes("search")) {
       return {

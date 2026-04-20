@@ -44,8 +44,29 @@ export async function memorySearch(
 }
 
 /**
- * Call `openclaw infer` via the injected runner.
- * Returns null on any failure.
+ * Call `openclaw memory index --force` to rebuild the search index.
+ * Necessary after bulk file deletions (e.g. consolidation) so that
+ * deleted files are dropped from search results.
+ */
+export async function reindexMemory(runner: CommandRunner): Promise<void> {
+  try {
+    await runner(
+      ["openclaw", "memory", "index", "--force"],
+      { timeoutMs: 60_000 }
+    );
+  } catch (err) {
+    console.error(`[reflexio] openclaw memory index --force failed: ${err}`);
+  }
+}
+
+interface InferResponse {
+  ok: boolean;
+  outputs?: { text: string | null; mediaUrl?: string | null }[];
+}
+
+/**
+ * Call `openclaw infer model run` via the injected runner.
+ * Returns the LLM output text, or null on any failure.
  */
 export async function infer(
   prompt: string,
@@ -53,10 +74,12 @@ export async function infer(
 ): Promise<string | null> {
   try {
     const result = await runner(
-      ["openclaw", "infer", prompt],
+      ["openclaw", "infer", "model", "run", "--prompt", prompt, "--json"],
       { timeoutMs: 30_000 }
     );
-    return result.stdout.trim() || null;
+    const parsed: InferResponse = JSON.parse(result.stdout);
+    if (!parsed.ok || !parsed.outputs?.length) return null;
+    return parsed.outputs[0].text?.trim() || null;
   } catch (err) {
     console.error(`[reflexio] openclaw infer failed: ${err}`);
     return null;

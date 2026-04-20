@@ -17,7 +17,8 @@ function createMockRunner(
     if (argv.includes("infer")) {
       const result = inferResults[inferCallCount++] ?? null;
       if (result === null) throw new Error("infer failed");
-      return { stdout: result, stderr: "", code: 0 };
+      const envelope = JSON.stringify({ ok: true, outputs: [{ text: result }] });
+      return { stdout: envelope, stderr: "", code: 0 };
     }
     if (argv.includes("memory") && argv.includes("search")) {
       return {

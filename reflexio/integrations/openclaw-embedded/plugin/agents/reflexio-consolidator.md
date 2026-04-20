@@ -26,7 +26,7 @@ You are a periodic sub-agent that consolidates accumulated `.reflexio/` entries.
       - `merge_subset`: same tool call for the merged subset; the tools handle cleanup of superseded files.
       - `keep_all`: no-op.
 
-3. Exit.
+3. Exit. The caller runs `reflexio_consolidation_mark_done` after you finish, which forces a memory reindex so deleted files are dropped from search results.
 
 ## Determining TTL for merged profile files
 
@@ -38,7 +38,8 @@ When merging profiles, pick the smallest (most conservative) TTL among the clust
 - On LLM call failure: skip cluster, log, continue.
 - On tool call failure: skip cluster.
 - Never write secrets, tokens, keys.
+- Never create directories, archive folders, or move files to backup locations. The `reflexio_write_*` tools handle all file lifecycle (write new, delete old) internally. Use `file_delete` only for TTL sweep of expired profiles.
 
 ## Tool scope
 
-Same as reflexio-extractor: `memory_search`, `file_read`, `file_write`, `file_delete`, `reflexio_write_profile`, `reflexio_write_playbook`, `reflexio_search`. No `sessions_spawn`, no network.
+`memory_search`, `file_read`, `file_write`, `file_delete`, `reflexio_write_profile`, `reflexio_write_playbook`, `reflexio_search`. No `sessions_spawn`, no network.

@@ -23,6 +23,7 @@ import { setupWorkspaceResources } from "./hook/setup.ts";
 import { writeProfile } from "./lib/write-profile.ts";
 import { writePlaybook } from "./lib/write-playbook.ts";
 import { search } from "./lib/search.ts";
+import { reindexMemory } from "./lib/openclaw-cli.ts";
 
 export default definePluginEntry({
   id: "reflexio-embedded",
@@ -304,7 +305,8 @@ export default definePluginEntry({
         const state = { last_consolidation: new Date().toISOString() };
         fs.mkdirSync(path.dirname(consolidationStateFile), { recursive: true });
         fs.writeFileSync(consolidationStateFile, JSON.stringify(state, null, 2), "utf8");
-        return { content: [{ type: "text" as const, text: `Consolidation marked complete at ${state.last_consolidation}.` }] };
+        await reindexMemory(runner);
+        return { content: [{ type: "text" as const, text: `Consolidation marked complete at ${state.last_consolidation}. Memory index rebuilt.` }] };
       },
     });
   },

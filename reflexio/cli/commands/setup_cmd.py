@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
-import shlex
 import shutil
 import subprocess
 from enum import Enum
@@ -13,8 +11,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-
-from reflexio.server.llm.model_defaults import EMBEDDING_CAPABLE_PROVIDERS
 
 
 class InstallLocation(Enum):
@@ -26,7 +22,6 @@ class InstallLocation(Enum):
 
     CURRENT_PROJECT = "current_project"
     ALL_PROJECTS = "all_projects"
-
 
 app = typer.Typer(
     help="Configure Reflexio: run 'init' for plain CLI setup, or one of "
@@ -74,6 +69,8 @@ _PROVIDERS: dict[str, dict[str, str]] = {
     },
     "zai": {"env_var": "ZAI_API_KEY", "model": "glm-4-flash", "display": "ZAI"},
 }
+
+_EMBEDDING_PROVIDERS: frozenset[str] = frozenset({"openai", "gemini"})
 
 
 def _set_env_var(env_path: Path, key: str, value: str) -> None:
@@ -175,7 +172,7 @@ def _prompt_embedding_provider(env_path: Path, llm_provider_key: str) -> str | N
         str | None: Display name of the embedding provider, or None if the LLM
             provider already supports embeddings.
     """
-    if llm_provider_key in EMBEDDING_CAPABLE_PROVIDERS:
+    if llm_provider_key in _EMBEDDING_PROVIDERS:
         return None
 
     llm_display = _PROVIDERS[llm_provider_key]["display"]
@@ -330,35 +327,6 @@ def _prompt_self_hosted(env_path: Path) -> str:
     return "Self-hosted Reflexio"
 
 
-def _prompt_user_id(env_path: Path, fallback: str = "claude-code") -> str:
-    """
-    Prompt for REFLEXIO_USER_ID. Press Enter to accept the default.
-
-    Tags all interactions, profiles, and playbooks published by Claude Code.
-    Customize when you want per-developer attribution or to match a
-    managed/remote user account. If REFLEXIO_USER_ID is already set in
-    the environment (e.g. from a previous setup run), that value is offered
-    as the default.
-
-    Args:
-        env_path (Path): Path to the .env file to persist the value.
-        fallback (str): Default user_id when neither the env nor user input supplies one.
-
-    Returns:
-        str: The resolved user_id (trimmed; fallback if empty).
-    """
-    current = (os.environ.get("REFLEXIO_USER_ID") or "").strip()
-    default = current or fallback
-    typer.echo("")
-    typer.echo(
-        "User ID tags interactions, profiles, and playbooks published by Claude Code."
-    )
-    typer.echo("Press Enter to keep the default.")
-    user_id = (typer.prompt("User ID", default=default) or default).strip() or fallback
-    _set_env_var(env_path, "REFLEXIO_USER_ID", user_id)
-    return user_id
-
-
 def _prompt_storage(env_path: Path) -> str:
     """Interactively prompt the user to choose a storage backend.
 
@@ -388,10 +356,10 @@ def _prompt_storage(env_path: Path) -> str:
 
 
 def _install_openclaw_integration() -> bool:
-    """Install the Reflexio hook and skill into OpenClaw.
+    """Install the Reflexio plugin into OpenClaw via the plugin system.
 
     Returns:
-        bool: True if the hook was verified as registered.
+        bool: True if the plugin was verified as registered.
 
     Raises:
         typer.Exit: If the openclaw CLI is not found on PATH.
@@ -403,22 +371,30 @@ def _install_openclaw_integration() -> bool:
     import reflexio
 
     pkg_dir = Path(reflexio.__file__).parent
-    integration_dir = pkg_dir / "integrations" / "openclaw"
-    hook_dir = integration_dir / "hook"
-    skill_dir = integration_dir / "skill"
-    rules_dir = integration_dir / "rules"
-    commands_dir = integration_dir / "commands"
+    plugin_dir = pkg_dir / "integrations" / "openclaw" / "plugin"
 
-    # Install plugin and enable hook
+    if not plugin_dir.exists():
+        typer.echo(f"Error: plugin directory not found at {plugin_dir}")
+        raise typer.Exit(1)
+
+    # Clean install: remove any existing installation first
+    subprocess.run(
+        ["openclaw", "plugins", "uninstall", "--force", "reflexio-federated"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    # Install plugin
     try:
         subprocess.run(
-            ["openclaw", "plugins", "install", str(hook_dir), "--link"],
+            ["openclaw", "plugins", "install", str(plugin_dir)],
             check=True,
             capture_output=True,
             text=True,
         )
         subprocess.run(
-            ["openclaw", "hooks", "enable", "reflexio-context"],
+            ["openclaw", "plugins", "enable", "reflexio-federated"],
             check=True,
             capture_output=True,
             text=True,
@@ -427,46 +403,17 @@ def _install_openclaw_integration() -> bool:
         typer.echo(f"Error: openclaw command failed: {exc.stderr or exc.stdout}")
         raise typer.Exit(1) from exc
 
-    # Copy skill directory. ClawHub drops `_meta.json` at the skill root on
-    # install — if that's present, don't clobber the user's ClawHub-installed
-    # copy. Otherwise always refresh (so `pip install --upgrade reflexio-ai &&
-    # reflexio setup openclaw` stays the normal upgrade flow).
-    workspace_skills = Path.home() / ".openclaw" / "skills" / "reflexio"
-    if (workspace_skills / "_meta.json").exists():
-        typer.echo(f"ClawHub-installed skill at {workspace_skills} — skipping refresh")
-    else:
-        if workspace_skills.exists():
-            shutil.rmtree(workspace_skills)
-        shutil.copytree(skill_dir, workspace_skills)
-
-    # Copy each command directory to ~/.openclaw/skills/<command-name>
-    if commands_dir.exists():
-        for cmd_subdir in commands_dir.iterdir():
-            if cmd_subdir.is_dir():
-                dest = Path.home() / ".openclaw" / "skills" / cmd_subdir.name
-                shutil.copytree(cmd_subdir, dest, dirs_exist_ok=True)
-                typer.echo(f"Command installed: {dest}")
-
-    # Copy rules to default workspace (always-active behavioral constraints)
-    if rules_dir.exists():
-        workspace_dir = Path.home() / ".openclaw" / "workspace"
-        for rule_file in rules_dir.glob("*.md"):
-            dest = workspace_dir / rule_file.name
-            workspace_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(rule_file, dest)
-            typer.echo(f"Rule installed: {dest}")
-
     # Verify
     result = subprocess.run(
-        ["openclaw", "hooks", "list"],
+        ["openclaw", "plugins", "inspect", "reflexio-federated"],
         capture_output=True,
         text=True,
     )
-    if "reflexio-context" in result.stdout:
-        typer.echo("Hook installed and registered")
+    if "loaded" in result.stdout.lower():
+        typer.echo("Plugin installed and registered")
         return True
 
-    typer.echo("Warning: Hook may not be registered -- check 'openclaw hooks list'")
+    typer.echo("Warning: Plugin may not be registered -- check 'openclaw plugins inspect reflexio-federated'")
     return False
 
 
@@ -478,39 +425,25 @@ def _uninstall_openclaw() -> None:
     )
     if shutil.which("openclaw"):
         subprocess.run(
-            ["openclaw", "hooks", "disable", "reflexio-context"],
+            ["openclaw", "plugins", "disable", "reflexio-federated"],
             check=False,
             capture_output=True,
             text=True,
         )
         subprocess.run(
-            ["openclaw", "plugins", "uninstall", "reflexio-context"],
+            ["openclaw", "plugins", "uninstall", "--force", "reflexio-federated"],
             check=False,
             capture_output=True,
             text=True,
         )
     else:
-        typer.echo("Warning: openclaw CLI not found on PATH, skipping hook removal")
-    workspace_skills = Path.home() / ".openclaw" / "skills" / "reflexio"
-    if workspace_skills.exists():
-        shutil.rmtree(workspace_skills)
-        typer.echo(f"Removed skill: {workspace_skills}")
+        typer.echo("Warning: openclaw CLI not found on PATH, skipping plugin removal")
 
-    import reflexio as _reflexio
-
-    integration_dir = Path(_reflexio.__file__).parent / "integrations" / "openclaw"
-    commands_dir = integration_dir / "commands"
-    if commands_dir.exists():
-        for cmd_subdir in commands_dir.iterdir():
-            if cmd_subdir.is_dir():
-                cmd_dir = Path.home() / ".openclaw" / "skills" / cmd_subdir.name
-                if cmd_dir.exists():
-                    shutil.rmtree(cmd_dir)
-    # Remove rules from default workspace
-    rules_file = Path.home() / ".openclaw" / "workspace" / "reflexio.md"
-    if rules_file.exists():
-        rules_file.unlink()
-        typer.echo(f"Removed rule: {rules_file}")
+    # Remove setup markers
+    reflexio_dir = Path.home() / ".reflexio"
+    for marker in reflexio_dir.glob(".setup_complete_*"):
+        marker.unlink(missing_ok=True)
+        typer.echo(f"Removed setup marker: {marker}")
 
     typer.echo("Reflexio integration fully removed from OpenClaw.")
 
@@ -551,8 +484,7 @@ def openclaw(
     hook_ok = _install_openclaw_integration()
 
     # Step 5: Summary
-    hook_status = "reflexio-context" if hook_ok else "reflexio-context (unverified)"
-    skill_path = Path.home() / ".openclaw" / "skills" / "reflexio"
+    hook_status = "reflexio-federated" if hook_ok else "reflexio-federated (unverified)"
 
     typer.echo("")
     typer.echo("Setup complete!")
@@ -560,14 +492,12 @@ def openclaw(
     if embedding_label:
         typer.echo(f"  Embedding Provider: {embedding_label}")
     typer.echo(f"  Storage: {storage_label}")
-    typer.echo(f"  Hook: {hook_status}")
-    typer.echo(f"  Skill: {skill_path}")
+    typer.echo(f"  Plugin: {hook_status}")
     typer.echo("")
     typer.echo("Next steps:")
-    typer.echo("  1. Start Reflexio: reflexio services start")
-    typer.echo("  2. Restart OpenClaw gateway: openclaw gateway restart")
+    typer.echo("  1. Restart OpenClaw gateway: openclaw gateway restart")
     typer.echo(
-        "  3. Start a conversation -- Reflexio will capture and learn automatically"
+        "  2. Start a conversation -- Reflexio will capture and learn automatically"
     )
 
 
@@ -686,43 +616,22 @@ def _upsert_hook(hooks: dict, event_name: str, hook_command: str) -> None:
     event_hooks.append(hook_entry)
 
 
-def _remove_reflexio_hook(hooks: dict, event_name: str) -> None:
-    """Remove any Reflexio hook entry for the given event.
-
-    Args:
-        hooks: The hooks dict from settings.json.
-        event_name: The hook event name to clean up.
-    """
-    if event_name not in hooks:
-        return
-    hooks[event_name] = [
-        entry
-        for entry in hooks[event_name]
-        if not any("reflexio" in h.get("command", "") for h in entry.get("hooks", []))
-    ]
-    if not hooks[event_name]:
-        del hooks[event_name]
-
-
-def _merge_hook_config(
-    settings_path: Path, handler_js_path: Path, *, expert: bool = False
-) -> None:
+def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
     """Add or update Reflexio hooks in .claude/settings.json.
 
-    Installs two hooks (three in expert mode):
+    Installs two hooks:
     - SessionStart: checks if the Reflexio server is running and starts it in
       the background if not (~10ms, non-blocking).
-    - UserPromptSubmit: runs ``reflexio search`` on every user prompt and injects
+    - UserPromptSubmit: runs `reflexio search` on every user prompt and injects
       results as context Claude sees.
 
-    In expert mode, also installs a SessionEnd hook that captures the full session
-    transcript on exit as a safety net — ensures learnings are extracted even
-    when the user doesn't manually invoke ``/reflexio-extract``.
+    No Stop hook is installed — conversation capture is handled by the expert
+    skill's mid-session publish or by an explicit `/reflexio-extract` command,
+    giving the user control over when to extract learnings.
 
     Args:
         settings_path: Path to the project's .claude/settings.json.
         handler_js_path: Absolute path to handler.js in the installed package.
-        expert: When True, also install the SessionEnd hook for session capture.
     """
     settings: dict = {}
     if settings_path.exists():
@@ -733,23 +642,11 @@ def _merge_hook_config(
 
     # Session start hook (SessionStart) — checks/starts Reflexio server proactively
     session_start_hook_sh = handler_js_path.parent / "session_start_hook.sh"
-    _upsert_hook(
-        hooks, "SessionStart", f"bash {shlex.quote(str(session_start_hook_sh))}"
-    )
+    _upsert_hook(hooks, "SessionStart", f"bash {session_start_hook_sh}")
 
     # Search hook (UserPromptSubmit) — injects Reflexio context before Claude responds
     search_hook_js = handler_js_path.parent / "search_hook.js"
-    _upsert_hook(
-        hooks, "UserPromptSubmit", f"node {shlex.quote(str(search_hook_js))}"
-    )
-
-    # SessionEnd hook — captures full session transcript on exit (expert mode only)
-    if expert:
-        _upsert_hook(
-            hooks, "SessionEnd", f"node {shlex.quote(str(handler_js_path))}"
-        )
-    else:
-        _remove_reflexio_hook(hooks, "SessionEnd")
+    _upsert_hook(hooks, "UserPromptSubmit", f"node {search_hook_js}")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -765,14 +662,14 @@ def _remove_hook_config(settings_path: Path) -> None:
         return
     try:
         settings = json.loads(settings_path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return
 
     hooks = settings.get("hooks")
     if not hooks:
         return
 
-    for event_name in ["SessionEnd", "Stop", "UserPromptSubmit", "SessionStart"]:
+    for event_name in ["Stop", "UserPromptSubmit", "SessionStart"]:
         event_hooks = hooks.get(event_name, [])
         hooks[event_name] = [
             entry
@@ -853,30 +750,17 @@ def _install_claude_code_integration(
     rules_dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(rules_src, rules_dest)
 
-    # Expert mode: also install /reflexio-extract command and skill references
-    # Normal mode: remove expert-only artifacts from any prior expert install
-    cmd_dir = claude_dir / "commands" / "reflexio-extract"
-    refs_dir = claude_dir / "skills" / "reflexio" / "references"
+    # Expert mode: also install /reflexio-extract command
     if expert:
         cmd_src = integration_dir / "commands" / "reflexio-extract" / "SKILL.md"
-        cmd_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cmd_src, cmd_dir / "SKILL.md")
-
-        refs_src = integration_dir / "skill" / "references"
-        if refs_src.exists():
-            if refs_dir.exists():
-                shutil.rmtree(refs_dir)
-            shutil.copytree(refs_src, refs_dir)
-    else:
-        if cmd_dir.exists():
-            shutil.rmtree(cmd_dir)
-        if refs_dir.exists():
-            shutil.rmtree(refs_dir)
+        cmd_dest = claude_dir / "commands" / "reflexio-extract" / "SKILL.md"
+        cmd_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cmd_src, cmd_dest)
 
     # Configure hook
     handler_js = integration_dir / "hook" / "handler.js"
     settings_path = claude_dir / "settings.json"
-    _merge_hook_config(settings_path, handler_js, expert=expert)
+    _merge_hook_config(settings_path, handler_js)
 
     # Write marker for uninstall auto-detection
     marker_path = claude_dir / "skills" / "reflexio" / _MARKER_FILENAME
@@ -940,7 +824,9 @@ def _remove_from_dir(base_dir: Path) -> None:
     typer.echo(f"  Removed hook from: {settings_path}")
 
 
-def _uninstall_claude_code(project_dir: Path, *, global_install: bool = False) -> None:
+def _uninstall_claude_code(
+    project_dir: Path, *, global_install: bool = False
+) -> None:
     """Remove the Reflexio integration from Claude Code.
 
     When ``--global`` or ``--project-dir`` is explicit, removes from that
@@ -1056,9 +942,7 @@ def claude_code_setup(
         target = (
             Path.home()
             if global_install
-            else Path(project_dir)
-            if project_dir is not None
-            else Path.cwd()
+            else Path(project_dir) if project_dir is not None else Path.cwd()
         )
         _uninstall_claude_code(target, global_install=global_install)
         return
@@ -1071,7 +955,11 @@ def claude_code_setup(
         location = InstallLocation.CURRENT_PROJECT
     else:
         location = _prompt_install_location()
-        target = Path.home() if location == InstallLocation.ALL_PROJECTS else Path.cwd()
+        target = (
+            Path.home()
+            if location == InstallLocation.ALL_PROJECTS
+            else Path.cwd()
+        )
 
     # Step 1: Load .env path
     from reflexio.cli.env_loader import load_reflexio_env
@@ -1098,7 +986,7 @@ def claude_code_setup(
         embedding_label = _prompt_embedding_provider(env_path, provider_key)
 
     # Step 3.5: Configure user_id for Claude Code
-    user_id = _prompt_user_id(env_path)
+    _set_env_var(env_path, "REFLEXIO_USER_ID", "claude-code")
 
     # Step 4: Install skill + hook
     typer.echo("")
@@ -1123,20 +1011,14 @@ def claude_code_setup(
     if embedding_label:
         typer.echo(f"  Embedding Provider: {embedding_label}")
     typer.echo(f"  Storage: {storage_label}")
-    typer.echo(f"  User ID: {user_id}")
     typer.echo(f"  Skill ({skill_type}): {skill_path}")
-    hooks_list = "SessionStart + UserPromptSubmit"
-    if expert:
-        hooks_list += " + SessionEnd"
-    typer.echo(f"  Hooks: {hooks_list}")
+    typer.echo("  Hooks: SessionStart + UserPromptSubmit")
     if location == InstallLocation.ALL_PROJECTS:
         typer.echo("")
         typer.echo("Note: User-level hooks fire for ALL Claude Code sessions.")
     typer.echo("")
     if location == InstallLocation.ALL_PROJECTS:
-        typer.echo(
-            "Next: Start any Claude Code session — Reflexio is active in all projects."
-        )
+        typer.echo("Next: Start any Claude Code session — Reflexio is active in all projects.")
     else:
         typer.echo("Next: Start a Claude Code session in this project.")
     if is_remote:

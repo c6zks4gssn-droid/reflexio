@@ -16,14 +16,12 @@ import {
   handleMessageSent,
   handleSessionFlush,
   handleToolPublish,
+  DEFAULT_CONFIG,
   type PluginConfig,
 } from "./hook/handler.ts";
 
-const DEFAULT_CONFIG: PluginConfig = {
-  publish: { batch_size: 10, max_retries: 3, max_content_length: 10_000 },
-  search: { timeout_ms: 5_000, top_k: 5, min_prompt_length: 5 },
-  server: { health_check_timeout_ms: 3_000, stale_flag_ms: 120_000 },
-};
+// Track the most recently active session key, updated by before_prompt_build and message_sent.
+let _activeSessionKey = "";
 
 export default definePluginEntry({
   id: "reflexio-federated",
@@ -47,6 +45,7 @@ export default definePluginEntry({
       const context = ctx as { agentId?: string; sessionKey?: string };
       const sessionKey = context.sessionKey ?? "";
       const agentId = context.agentId ?? "main";
+      if (sessionKey) _activeSessionKey = sessionKey;
 
       // Extract prompt from event (best-effort)
       const eventObj = _event as { prompt?: string; messages?: { role?: string; content?: unknown }[] };
@@ -78,8 +77,10 @@ export default definePluginEntry({
     api.on("message_sent", (_event: unknown, ctx: unknown) => {
       const context = ctx as { sessionKey?: string };
       const event = _event as { userMessage?: string; agentResponse?: string; content?: string; role?: string };
+      const sessionKey = context.sessionKey ?? "";
+      if (sessionKey) _activeSessionKey = sessionKey;
       handleMessageSent(
-        context.sessionKey ?? "",
+        sessionKey,
         event.userMessage,
         event.agentResponse ?? (event.role === "assistant" ? (typeof event.content === "string" ? event.content : undefined) : undefined),
         runner,
@@ -90,17 +91,17 @@ export default definePluginEntry({
 
     // before_compaction: flush before transcript is compacted
     api.on("before_compaction", async (_event, ctx) => {
-      handleSessionFlush(ctx.sessionKey ?? "", log);
+      handleSessionFlush(ctx.sessionKey ?? "", log, config);
     });
 
     // before_reset: flush before transcript is wiped
     api.on("before_reset", async (_event, ctx) => {
-      handleSessionFlush(ctx.sessionKey ?? "", log);
+      handleSessionFlush(ctx.sessionKey ?? "", log, config);
     });
 
     // session_end: final flush
     api.on("session_end", async (event, ctx) => {
-      handleSessionFlush(ctx.sessionKey ?? event.sessionKey ?? "", log);
+      handleSessionFlush(ctx.sessionKey ?? event.sessionKey ?? "", log, config);
     });
 
     // reflexio_publish tool: agent-invoked immediate flush
@@ -113,10 +114,8 @@ export default definePluginEntry({
       parameters: { type: "object", properties: {} },
       optional: true,
       async execute(_id: string, _params: Record<string, unknown>) {
-        // Note: session key is not directly available in tool execute context.
-        // The handler uses the module-level DB which tracks all sessions.
-        // For now, we use empty string — the publish will flush ALL sessions.
-        const result = handleToolPublish("", log);
+        // Use the module-level active session key tracked by before_prompt_build and message_sent.
+        const result = handleToolPublish(_activeSessionKey, log, config);
         return { content: [{ type: "text" as const, text: result }] };
       },
     });

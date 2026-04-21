@@ -6,36 +6,75 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-let _cachedUserId: string | null = null;
 let _openclawConfig: Record<string, unknown> | null = null;
 
-/** Strip JSON5 line comments while respecting quoted strings. */
+/** Strip JSON5 line and block comments while respecting quoted strings. */
 export function stripJsonComments(raw: string): string {
-  return raw
-    .split("\n")
-    .map((line) => {
-      let inString = false;
-      let escape = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (escape) {
-          escape = false;
-          continue;
+  const result: string[] = [];
+  let inBlockComment = false;
+  for (const line of raw.split("\n")) {
+    let out = "";
+    let inString = false;
+    let escape = false;
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (inBlockComment) {
+        // Look for end of block comment
+        if (ch === "*" && line[i + 1] === "/") {
+          inBlockComment = false;
+          i += 2;
+        } else {
+          i++;
         }
+        continue;
+      }
+      if (escape) {
+        escape = false;
+        out += ch;
+        i++;
+        continue;
+      }
+      if (inString) {
         if (ch === "\\") {
           escape = true;
+          out += ch;
+          i++;
           continue;
         }
         if (ch === '"') {
-          inString = !inString;
+          inString = false;
+          out += ch;
+          i++;
           continue;
         }
-        if (!inString && ch === "/" && line[i + 1] === "/") return line.slice(0, i);
-        if (!inString && ch === "/" && line[i + 1] === "*") return line.slice(0, i);
+        out += ch;
+        i++;
+        continue;
       }
-      return line;
-    })
-    .join("\n");
+      // Outside string
+      if (ch === '"') {
+        inString = true;
+        out += ch;
+        i++;
+        continue;
+      }
+      if (ch === "/" && line[i + 1] === "/") {
+        // Line comment — rest of line is comment
+        break;
+      }
+      if (ch === "/" && line[i + 1] === "*") {
+        // Block comment start
+        inBlockComment = true;
+        i += 2;
+        continue;
+      }
+      out += ch;
+      i++;
+    }
+    result.push(out);
+  }
+  return result.join("\n");
 }
 
 /** Read and cache ~/.openclaw/openclaw.json (JSON5 — strip comments before parsing). */
@@ -91,6 +130,5 @@ export function resolveAgentVersion(): string {
 
 /** Reset cached state — for testing only. */
 export function _resetCache(): void {
-  _cachedUserId = null;
   _openclawConfig = null;
 }

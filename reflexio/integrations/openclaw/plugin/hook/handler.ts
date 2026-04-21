@@ -30,7 +30,7 @@ export interface PluginConfig {
   server: { health_check_timeout_ms: number; stale_flag_ms: number };
 }
 
-const DEFAULT_CONFIG: PluginConfig = {
+export const DEFAULT_CONFIG: PluginConfig = {
   publish: { batch_size: 10, max_retries: 3, max_content_length: 10_000 },
   search: { timeout_ms: 5_000, top_k: 5, min_prompt_length: 5 },
   server: { health_check_timeout_ms: 3_000, stale_flag_ms: 120_000 },
@@ -189,6 +189,7 @@ export function handleMessageSent(
 export function handleSessionFlush(
   sessionKey: string,
   log?: Logger,
+  config: PluginConfig = DEFAULT_CONFIG,
 ): void {
   try {
     const db = getDb();
@@ -199,7 +200,7 @@ export function handleSessionFlush(
       sessionKey,
       userId,
       agentVersion,
-      DEFAULT_CONFIG.publish.max_retries,
+      config.publish.max_retries,
       MAX_INTERACTIONS,
       log,
     );
@@ -214,6 +215,7 @@ export function handleSessionFlush(
 export function handleToolPublish(
   sessionKey: string,
   log?: Logger,
+  config: PluginConfig = DEFAULT_CONFIG,
 ): string {
   try {
     const db = getDb();
@@ -227,7 +229,7 @@ export function handleToolPublish(
       sessionKey,
       userId,
       agentVersion,
-      DEFAULT_CONFIG.publish.max_retries,
+      config.publish.max_retries,
       MAX_INTERACTIONS,
       log,
     );

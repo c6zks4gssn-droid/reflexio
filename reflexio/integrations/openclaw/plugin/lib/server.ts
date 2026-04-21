@@ -79,15 +79,20 @@ export async function ensureServerRunning(
   fs.mkdirSync(LOGS_DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(STARTING_FLAG, String(Date.now()), { mode: 0o600 });
 
+  const logPath = path.join(LOGS_DIR, "server.log");
+  const logFd = fs.openSync(logPath, "a");
   const child = spawn(
-    "sh",
-    [
-      "-c",
-      `reflexio services start --only backend >> "${path.join(LOGS_DIR, "server.log")}" 2>&1 & sleep 30 && rm -f "${STARTING_FLAG}"`,
-    ],
-    { detached: true, stdio: ["ignore", "ignore", "ignore"] },
+    "reflexio",
+    ["services", "start", "--only", "backend"],
+    { detached: true, stdio: ["ignore", logFd, logFd] },
   );
   child.unref();
+  fs.closeSync(logFd);
+
+  // Remove stale flag after 30 seconds
+  setTimeout(() => {
+    try { fs.unlinkSync(STARTING_FLAG); } catch { /* already removed */ }
+  }, 30_000).unref();
 
   opts.log?.info?.("[reflexio] Server not running — starting in background");
 }

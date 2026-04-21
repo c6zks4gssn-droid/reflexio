@@ -441,9 +441,10 @@ def _uninstall_openclaw() -> None:
 
     # Remove setup markers
     reflexio_dir = Path.home() / ".reflexio"
-    for marker in reflexio_dir.glob(".setup_complete_*"):
-        marker.unlink(missing_ok=True)
-        typer.echo(f"Removed setup marker: {marker}")
+    if reflexio_dir.exists():
+        for marker in reflexio_dir.glob(".setup_complete_*"):
+            marker.unlink(missing_ok=True)
+            typer.echo(f"Removed setup marker: {marker}")
 
     typer.echo("Reflexio integration fully removed from OpenClaw.")
 
@@ -662,7 +663,7 @@ def _remove_hook_config(settings_path: Path) -> None:
         return
     try:
         settings = json.loads(settings_path.read_text())
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):
         return
 
     hooks = settings.get("hooks")

@@ -139,7 +139,8 @@ export function markFailed(db: Database.Database, sessionId: string): void {
 
 /** Delete published turns older than the given number of days. */
 export function cleanupOldTurns(db: Database.Database, days: number = 7): void {
-  db.exec(
-    `DELETE FROM turns WHERE published = 1 AND timestamp < datetime('now', '-${days} days')`,
-  );
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    "DELETE FROM turns WHERE published = 1 AND timestamp < ?",
+  ).run(cutoff);
 }

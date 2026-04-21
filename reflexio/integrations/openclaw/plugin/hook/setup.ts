@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 export interface SetupGuidance {
   /** Message for the agent to present to the user. */
@@ -17,32 +17,38 @@ export interface SetupGuidance {
 
 const REFLEXIO_DIR = path.join(os.homedir(), ".reflexio");
 
+/** Sanitize agentId for safe use in filesystem paths. */
+function sanitizeAgentId(agentId: string): string {
+  return agentId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 /** Check if setup has been completed for a given agent. */
 export function isSetupComplete(reflexioDir: string, agentId: string): boolean {
-  const marker = path.join(reflexioDir, `.setup_complete_${agentId}`);
+  const safeId = sanitizeAgentId(agentId);
+  const marker = path.join(reflexioDir, `.setup_complete_${safeId}`);
   return fs.existsSync(marker);
 }
 
 /** Create the setup-complete marker for an agent. */
 export function markSetupComplete(reflexioDir: string, agentId: string): void {
+  const safeId = sanitizeAgentId(agentId);
   fs.mkdirSync(reflexioDir, { recursive: true });
   fs.writeFileSync(
-    path.join(reflexioDir, `.setup_complete_${agentId}`),
+    path.join(reflexioDir, `.setup_complete_${safeId}`),
     new Date().toISOString(),
   );
 }
 
 /** Check if `reflexio` CLI is available on PATH. */
-export async function checkReflexioInstalled(): Promise<boolean> {
-  try {
-    execFileSync("reflexio", ["--version"], {
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+export function checkReflexioInstalled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(
+      "reflexio",
+      ["--version"],
+      { timeout: 5_000 },
+      (err) => { resolve(err === null); },
+    );
+  });
 }
 
 /** Detect which Python package installer is available. */

@@ -4,22 +4,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { writePlaybook } from "../plugin/lib/write-playbook.ts";
-import type { CommandRunner, MemorySearchResult } from "../plugin/lib/openclaw-cli.ts";
+import type { CommandRunner, MemorySearchResult, InferFn } from "../plugin/lib/openclaw-cli.ts";
 
 let inferCallCount: number;
 
-function createMockRunner(
-  inferResults: (string | null)[],
-  searchResults: MemorySearchResult[]
-): CommandRunner {
+function createMockInferFn(results: (string | null)[]): InferFn {
   inferCallCount = 0;
+  return async () => results[inferCallCount++] ?? null;
+}
+
+function createMockRunner(searchResults: MemorySearchResult[]): CommandRunner {
   return async (argv) => {
-    if (argv.includes("infer")) {
-      const result = inferResults[inferCallCount++] ?? null;
-      if (result === null) throw new Error("infer failed");
-      const envelope = JSON.stringify({ ok: true, outputs: [{ text: result }] });
-      return { stdout: envelope, stderr: "", code: 0 };
-    }
     if (argv.includes("memory") && argv.includes("search")) {
       return {
         stdout: JSON.stringify({ results: searchResults }),
@@ -44,13 +39,14 @@ afterEach(() => {
 
 describe("writePlaybook", () => {
   it("writes normally when no neighbors found", async () => {
-    const runner = createMockRunner(["commit message query"], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn(["commit message query"]);
 
     const result = await writePlaybook({
       slug: "commit-no-trailers",
       body: "## When\nCommit.\n\n## What\nNo trailers.\n\n## Why\nUser said.",
       workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -64,15 +60,15 @@ describe("writePlaybook", () => {
     fs.writeFileSync(oldPath, "---\nid: pbk_old\n---\nOld playbook");
 
     const runner = createMockRunner(
-      ["commit query", '{"decision": "supersede"}'],
       [{ path: oldPath, score: 0.5, snippet: "---\nid: pbk_old\n---\nOld playbook", startLine: 1, endLine: 5, source: "memory" }]
     );
+    const inferFn = createMockInferFn(["commit query", '{"decision": "supersede"}']);
 
     const result = await writePlaybook({
       slug: "commit-no-trailers",
       body: "## When\nCommit.\n\n## What\nUpdated rule.",
       workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -81,12 +77,13 @@ describe("writePlaybook", () => {
   });
 
   it("throws on invalid slug", async () => {
-    const runner = createMockRunner([], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn([]);
     await expect(
       writePlaybook({
         slug: "INVALID", body: "x",
         workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-        runner,
+        runner, inferFn,
       })
     ).rejects.toThrow("Invalid slug");
   });

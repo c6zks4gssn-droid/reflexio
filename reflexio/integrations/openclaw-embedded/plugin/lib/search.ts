@@ -1,4 +1,4 @@
-import { memorySearch, type MemorySearchResult, type CommandRunner } from "./openclaw-cli.ts";
+import { memorySearch, type MemorySearchResult, type CommandRunner, type InferFn } from "./openclaw-cli.ts";
 import { preprocessQuery } from "./dedup.ts";
 
 /**
@@ -25,8 +25,9 @@ export async function search(
   rawQuery: string,
   maxResults: number,
   type: "profile" | "playbook" | undefined,
-  runner: CommandRunner
+  runner: CommandRunner,
+  inferFn: InferFn
 ): Promise<MemorySearchResult[]> {
-  const query = await preprocessQuery(rawQuery, runner);
+  const query = await preprocessQuery(rawQuery, inferFn);
   return rawSearch(query, maxResults, type, runner);
 }

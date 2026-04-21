@@ -59,29 +59,9 @@ export async function reindexMemory(runner: CommandRunner): Promise<void> {
   }
 }
 
-interface InferResponse {
-  ok: boolean;
-  outputs?: { text: string | null; mediaUrl?: string | null }[];
-}
-
 /**
- * Call `openclaw infer model run` via the injected runner.
- * Returns the LLM output text, or null on any failure.
+ * Abstraction over LLM inference.
+ * Plugin runtime creates this from the SDK simple completion API.
+ * Tests inject a mock.
  */
-export async function infer(
-  prompt: string,
-  runner: CommandRunner
-): Promise<string | null> {
-  try {
-    const result = await runner(
-      ["openclaw", "infer", "model", "run", "--prompt", prompt, "--json"],
-      { timeoutMs: 30_000 }
-    );
-    const parsed: InferResponse = JSON.parse(result.stdout);
-    if (!parsed.ok || !parsed.outputs?.length) return null;
-    return parsed.outputs[0].text?.trim() || null;
-  } catch (err) {
-    console.error(`[reflexio] openclaw infer failed: ${err}`);
-    return null;
-  }
-}
+export type InferFn = (prompt: string) => Promise<string | null>;

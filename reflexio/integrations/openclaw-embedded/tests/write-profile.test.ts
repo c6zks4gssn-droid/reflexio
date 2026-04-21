@@ -4,22 +4,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { writeProfile } from "../plugin/lib/write-profile.ts";
-import type { CommandRunner, MemorySearchResult } from "../plugin/lib/openclaw-cli.ts";
+import type { CommandRunner, MemorySearchResult, InferFn } from "../plugin/lib/openclaw-cli.ts";
 
 let inferCallCount: number;
 
-function createMockRunner(
-  inferResults: (string | null)[],
-  searchResults: MemorySearchResult[]
-): CommandRunner {
+function createMockInferFn(results: (string | null)[]): InferFn {
   inferCallCount = 0;
+  return async () => results[inferCallCount++] ?? null;
+}
+
+function createMockRunner(searchResults: MemorySearchResult[]): CommandRunner {
   return async (argv) => {
-    if (argv.includes("infer")) {
-      const result = inferResults[inferCallCount++] ?? null;
-      if (result === null) throw new Error("infer failed");
-      const envelope = JSON.stringify({ ok: true, outputs: [{ text: result }] });
-      return { stdout: envelope, stderr: "", code: 0 };
-    }
     if (argv.includes("memory") && argv.includes("search")) {
       return {
         stdout: JSON.stringify({ results: searchResults }),
@@ -44,12 +39,13 @@ afterEach(() => {
 
 describe("writeProfile", () => {
   it("writes normally when no neighbors found", async () => {
-    const runner = createMockRunner(["diet vegan query"], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn(["diet vegan query"]);
 
     const result = await writeProfile({
       slug: "diet-vegan", ttl: "infinity",
       body: "User is vegan.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -59,14 +55,15 @@ describe("writeProfile", () => {
   });
 
   it("writes normally when neighbor is below threshold", async () => {
-    const runner = createMockRunner(["diet query"], [
+    const runner = createMockRunner([
       { path: ".reflexio/profiles/old.md", score: 0.3, snippet: "id: prof_old\n---\nOld fact", startLine: 1, endLine: 5, source: "memory" },
     ]);
+    const inferFn = createMockInferFn(["diet query", null]);
 
     const result = await writeProfile({
       slug: "diet-vegan", ttl: "infinity",
       body: "User is vegan.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -78,14 +75,14 @@ describe("writeProfile", () => {
     fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nOld fact");
 
     const runner = createMockRunner(
-      ["diet vegan query", '{"decision": "supersede"}'],
       [{ path: oldPath, score: 0.5, snippet: "---\nid: prof_old\n---\nOld fact", startLine: 1, endLine: 5, source: "memory" }]
     );
+    const inferFn = createMockInferFn(["diet vegan query", '{"decision": "supersede"}']);
 
     const result = await writeProfile({
       slug: "diet-vegan", ttl: "infinity",
       body: "User is vegan.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -98,14 +95,14 @@ describe("writeProfile", () => {
     fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nDifferent fact");
 
     const runner = createMockRunner(
-      ["query", '{"decision": "keep_both"}'],
       [{ path: oldPath, score: 0.5, snippet: "---\nid: prof_old\n---\nDifferent fact", startLine: 1, endLine: 5, source: "memory" }]
     );
+    const inferFn = createMockInferFn(["query", '{"decision": "keep_both"}']);
 
     const result = await writeProfile({
       slug: "new-fact", ttl: "infinity",
       body: "New fact.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
@@ -113,48 +110,52 @@ describe("writeProfile", () => {
     expect(fs.readFileSync(result, "utf8")).not.toContain("supersedes");
   });
 
-  it("still writes when openclaw infer fails at preprocessing", async () => {
-    const runner = createMockRunner([null], []);
+  it("still writes when infer fails at preprocessing", async () => {
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn([null]);
 
     const result = await writeProfile({
       slug: "test", ttl: "infinity",
       body: "Fact.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
   });
 
   it("still writes when openclaw memory search fails", async () => {
-    const runner = createMockRunner(["query"], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn(["query"]);
 
     const result = await writeProfile({
       slug: "test", ttl: "infinity",
       body: "Fact.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner,
+      runner, inferFn,
     });
 
     expect(fs.existsSync(result)).toBe(true);
   });
 
   it("throws on invalid slug", async () => {
-    const runner = createMockRunner([], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn([]);
     await expect(
       writeProfile({
         slug: "INVALID", ttl: "infinity",
         body: "x", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-        runner,
+        runner, inferFn,
       })
     ).rejects.toThrow("Invalid slug");
   });
 
   it("throws on invalid TTL", async () => {
-    const runner = createMockRunner([], []);
+    const runner = createMockRunner([]);
+    const inferFn = createMockInferFn([]);
     await expect(
       writeProfile({
         slug: "valid", ttl: "bad_ttl" as any,
         body: "x", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-        runner,
+        runner, inferFn,
       })
     ).rejects.toThrow("Invalid TTL");
   });

@@ -23,7 +23,11 @@ import { setupWorkspaceResources } from "./hook/setup.ts";
 import { writeProfile } from "./lib/write-profile.ts";
 import { writePlaybook } from "./lib/write-playbook.ts";
 import { search } from "./lib/search.ts";
-import { reindexMemory } from "./lib/openclaw-cli.ts";
+import { reindexMemory, type InferFn } from "./lib/openclaw-cli.ts";
+import {
+  prepareSimpleCompletionModelForAgent,
+  completeWithPreparedSimpleCompletionModel,
+} from "openclaw/plugin-sdk/agent-runtime";
 
 export default definePluginEntry({
   id: "reflexio-embedded",
@@ -140,8 +144,43 @@ export default definePluginEntry({
     // Agent tools — deterministic control flow for writes + search
     // ──────────────────────────────────────────────────────────
     const runner = api.runtime.system.runCommandWithTimeout;
+
+    // In-process LLM inference via SDK simple completion API.
+    // Bypasses sessions, lanes, and CLI — no lock contention.
+    const inferFn: InferFn = async (prompt) => {
+      try {
+        const cfg = api.runtime.config.loadConfig();
+        const prepared = await prepareSimpleCompletionModelForAgent({
+          cfg,
+          agentId: "main",
+        });
+        if ("error" in prepared) {
+          console.error(`[reflexio] inferFn: model preparation failed: ${prepared.error}`);
+          return null;
+        }
+        const result = await completeWithPreparedSimpleCompletionModel({
+          model: prepared.model,
+          auth: prepared.auth,
+          context: {
+            systemPrompt: "You are a concise assistant. Respond with only what is asked, no preamble.",
+            messages: [{ role: "user" as const, content: [{ type: "text" as const, text: prompt }], timestamp: Date.now() }],
+          },
+          options: { maxTokens: 800 },
+        });
+        const text = result.content
+          .filter((c: { type: string }) => c.type === "text")
+          .map((c: { type: string; text?: string }) => c.text ?? "")
+          .join("");
+        console.info(`[reflexio] inferFn: success, responseLen=${text.length}`);
+        return text.trim() || null;
+      } catch (err) {
+        console.error(`[reflexio] inferFn: failed: ${err}`);
+        return null;
+      }
+    };
+
     const config = api.pluginConfig ?? {
-      dedup: { shallow_threshold: 0.7, top_k: 5 },
+      dedup: { shallow_threshold: 0.4, top_k: 5 },
       consolidation: { threshold_hours: 24 },
     };
 
@@ -185,6 +224,7 @@ export default definePluginEntry({
           workspace: workspaceDir,
           config: config.dedup,
           runner,
+          inferFn,
         });
         return { content: [{ type: "text" as const, text: filePath }] };
       },
@@ -214,6 +254,7 @@ export default definePluginEntry({
           workspace: workspaceDir,
           config: config.dedup,
           runner,
+          inferFn,
         });
         return { content: [{ type: "text" as const, text: filePath }] };
       },
@@ -231,7 +272,7 @@ export default definePluginEntry({
         required: ["query"],
       },
       async execute(_id: string, params: { query: string }) {
-        const results = await search(params.query, 5, undefined, runner);
+        const results = await search(params.query, 5, undefined, runner, inferFn);
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ results }, null, 2) }],
         };

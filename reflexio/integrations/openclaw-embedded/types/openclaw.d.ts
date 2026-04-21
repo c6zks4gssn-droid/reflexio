@@ -57,6 +57,15 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
         idempotencyKey?: string;
       }) => Promise<{ runId: string }>;
     };
+    system: {
+      runCommandWithTimeout: (
+        argv: string[],
+        opts: { timeoutMs: number; input?: string },
+      ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
+    };
+    config: {
+      loadConfig: () => unknown;
+    };
   };
 
   export type PluginHookAgentContext = {
@@ -116,6 +125,16 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     name: string;
     runtime: PluginRuntime;
     logger: PluginLogger;
+    pluginConfig?: Record<string, unknown>;
+    registerTool: (tool: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+      optional?: boolean;
+      execute: (id: string, params: Record<string, unknown>) => Promise<{
+        content: { type: string; text: string }[];
+      }>;
+    }) => void;
     on: {
       (
         hookName: "before_agent_start",
@@ -171,4 +190,41 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
   export function definePluginEntry(
     def: OpenClawPluginDefinition,
   ): OpenClawPluginDefinition;
+}
+
+declare module "openclaw/plugin-sdk/agent-runtime" {
+  export interface PreparedModel {
+    model: unknown;
+    auth: unknown;
+  }
+
+  export interface PreparedModelError {
+    error: string;
+  }
+
+  export function prepareSimpleCompletionModelForAgent(opts: {
+    cfg: unknown;
+    agentId: string;
+    modelRef?: string;
+  }): Promise<PreparedModel | PreparedModelError>;
+
+  export interface CompletionMessage {
+    role: string;
+    content: { type: string; text?: string }[];
+    timestamp: number;
+  }
+
+  export interface CompletionResult {
+    content: { type: string; text?: string }[];
+  }
+
+  export function completeWithPreparedSimpleCompletionModel(opts: {
+    model: unknown;
+    auth: unknown;
+    context: {
+      systemPrompt?: string;
+      messages: CompletionMessage[];
+    };
+    options?: { maxTokens?: number };
+  }): Promise<CompletionResult>;
 }

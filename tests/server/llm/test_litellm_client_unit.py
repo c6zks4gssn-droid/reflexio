@@ -1270,6 +1270,44 @@ class TestApplyPromptCaching:
         # Should not re-wrap
         assert result[0]["content"] == [{"type": "text", "text": "Already formatted"}]
 
+    def test_claude_code_prefix_is_noop(self, client):
+        """claude-code/* routes through the CLI, which cannot accept cache_control blocks."""
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hi"},
+        ]
+        result = client._apply_prompt_caching(messages, "claude-code/default")
+        assert result == messages
+        assert isinstance(result[0]["content"], str)
+
+
+# ===================================================================
+# claude-code provider routing (API-key resolution guard)
+# ===================================================================
+
+
+class TestResolveByPrefixClaudeCode:
+    """claude-code/* must not hit any API-key field in APIKeyConfig."""
+
+    def test_claude_code_returns_all_none(self):
+        cfg = APIKeyConfig(
+            openai=CommonsOpenAIConfig(api_key="sk-test"),
+            anthropic=AnthropicConfig(api_key="ant-test"),
+        )
+        client = _build_client(
+            LiteLLMConfig(model="claude-code/default", api_key_config=cfg)
+        )
+        assert client._resolve_by_prefix("claude-code/default") == (None, None, None)
+
+    def test_claude_code_does_not_fall_through_to_anthropic_branch(self):
+        """Guard against regressions where 'claude' substring match swallows claude-code/*."""
+        cfg = APIKeyConfig(anthropic=AnthropicConfig(api_key="ant-test"))
+        client = _build_client(
+            LiteLLMConfig(model="claude-code/default", api_key_config=cfg)
+        )
+        api_key, _, _ = client._resolve_by_prefix("claude-code/default")
+        assert api_key is None
+
 
 # ===================================================================
 # _build_user_content tests

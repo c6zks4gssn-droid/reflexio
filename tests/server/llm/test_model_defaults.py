@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from reflexio.models.config_schema import (
@@ -31,6 +33,10 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "XAI_API_KEY",
         "MOONSHOT_API_KEY",
         "ZAI_API_KEY",
+        "CLAUDE_SMART_USE_LOCAL_CLI",
+        "CLAUDE_SMART_CLI_PATH",
+        "CLAUDE_SMART_CLI_TIMEOUT",
+        "CLAUDE_SMART_USE_LOCAL_EMBEDDING",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -76,6 +82,60 @@ class TestDetectAvailableProviders:
         providers = detect_available_providers(config)
         assert providers[0] == "anthropic"
         assert "openai" in providers
+
+    def test_claude_code_needs_env_and_cli(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """claude-code requires both the env var AND the `claude` binary."""
+        from reflexio.server.llm.providers import claude_code_provider
+
+        monkeypatch.setenv("CLAUDE_SMART_USE_LOCAL_CLI", "1")
+        monkeypatch.setattr(claude_code_provider.shutil, "which", lambda _: None)
+        assert "claude-code" not in detect_available_providers()
+
+        monkeypatch.setattr(
+            claude_code_provider.shutil, "which", lambda _: "/usr/local/bin/claude"
+        )
+        assert detect_available_providers() == ["claude-code"]
+
+    def test_claude_code_not_detected_without_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without CLAUDE_SMART_USE_LOCAL_CLI=1, the CLI alone is not enough."""
+        from reflexio.server.llm.providers import claude_code_provider
+
+        monkeypatch.setattr(
+            claude_code_provider.shutil, "which", lambda _: "/usr/local/bin/claude"
+        )
+        assert detect_available_providers() == []
+
+    def test_claude_code_takes_priority_over_anthropic(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from reflexio.server.llm.providers import claude_code_provider
+
+        monkeypatch.setenv("CLAUDE_SMART_USE_LOCAL_CLI", "1")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-test")
+        monkeypatch.setattr(
+            claude_code_provider.shutil, "which", lambda _: "/usr/local/bin/claude"
+        )
+        providers = detect_available_providers()
+        assert providers[0] == "claude-code"
+        assert "anthropic" in providers
+
+    def test_claude_code_respects_cli_path_override(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        """CLAUDE_SMART_CLI_PATH should be honoured when `claude` is not on PATH."""
+        from reflexio.server.llm.providers import claude_code_provider
+
+        fake_cli = tmp_path / "claude"
+        fake_cli.write_text("#!/bin/sh\n")
+        fake_cli.chmod(0o755)
+        monkeypatch.setenv("CLAUDE_SMART_USE_LOCAL_CLI", "1")
+        monkeypatch.setenv("CLAUDE_SMART_CLI_PATH", str(fake_cli))
+        monkeypatch.setattr(claude_code_provider.shutil, "which", lambda _: None)
+        assert "claude-code" in detect_available_providers()
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +195,7 @@ class TestResolveModelName:
             resolve_model_name(ModelRole.EMBEDDING)
 
     def test_no_keys_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="No LLM API keys found"):
+        with pytest.raises(RuntimeError, match="No LLM provider available"):
             resolve_model_name(ModelRole.GENERATION)
 
     def test_embedding_cross_provider_fallback(
@@ -175,7 +235,7 @@ class TestResolveModelName:
 
 class TestValidateLlmAvailability:
     def test_no_keys_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="No LLM API keys found"):
+        with pytest.raises(RuntimeError, match="No LLM provider available"):
             validate_llm_availability()
 
     def test_no_embedding_provider_raises(
@@ -220,9 +280,28 @@ class TestProviderDefaults:
             assert provider in _PROVIDER_DEFAULTS, f"Missing defaults for {provider}"
 
     def test_all_roles_have_values(self) -> None:
+        """Every provider must support either generation+evaluation or embedding.
+
+        Embedding-only providers (e.g. ``local``) have None for the
+        generation/evaluation/should_run/pre_retrieval slots; the role
+        resolver falls through to the next provider in priority order.
+        Generation-only providers (e.g. ``claude-code``) have None for
+        embedding and fall back to an embedding-capable provider.
+        """
         for provider, defaults in _PROVIDER_DEFAULTS.items():
-            for role in ModelRole:
-                if role == ModelRole.EMBEDDING:
-                    continue  # embedding can be None
-                value = getattr(defaults, role.value)
-                assert value, f"{provider}.{role.value} is empty"
+            has_generation = defaults.generation is not None
+            has_embedding = defaults.embedding is not None
+            assert has_generation or has_embedding, (
+                f"{provider} supports neither generation nor embedding"
+            )
+            if has_generation:
+                # A provider that advertises generation must advertise
+                # every generation-family role.
+                for role in (
+                    ModelRole.GENERATION,
+                    ModelRole.EVALUATION,
+                    ModelRole.SHOULD_RUN,
+                    ModelRole.PRE_RETRIEVAL,
+                ):
+                    value = getattr(defaults, role.value)
+                    assert value, f"{provider}.{role.value} is empty"

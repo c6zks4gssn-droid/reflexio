@@ -17,6 +17,21 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from reflexio.models.config_schema import APIKeyConfig
 
+# Env var opting into the Claude Code CLI provider (registered in
+# reflexio.server.llm.providers.claude_code_provider). When set to "1"
+# *and* the `claude` binary is on PATH, the provider is auto-detected
+# with highest priority — reflexio will route extraction/evaluation
+# calls through the local CLI instead of requiring an API key.
+_CLAUDE_CODE_ENABLE_ENV = "CLAUDE_SMART_USE_LOCAL_CLI"
+_CLAUDE_CODE_PROVIDER = "claude-code"
+
+# Companion env var opting into the local ONNX embedder (registered in
+# reflexio.server.llm.providers.local_embedding_provider). Requires the
+# `chromadb` package to be importable — we detect that at runtime rather
+# than making it a hard dep of reflexio itself.
+_LOCAL_EMBEDDING_ENABLE_ENV = "CLAUDE_SMART_USE_LOCAL_EMBEDDING"
+_LOCAL_EMBEDDING_PROVIDER = "local"
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -36,8 +51,13 @@ _ENV_TO_PROVIDER: dict[str, str] = {
     "ZAI_API_KEY": "zai",
 }
 
-# When multiple keys are set, prefer providers in this order.
+# When multiple keys are set, prefer providers in this order. The
+# claude-code CLI provider sits at the top — when it's available, users
+# are explicitly opting into local-auth extraction and should not be
+# surprised by an OpenAI/Anthropic API bill from a leftover env var.
 _PROVIDER_PRIORITY: list[str] = [
+    _CLAUDE_CODE_PROVIDER,
+    _LOCAL_EMBEDDING_PROVIDER,
     "anthropic",
     "gemini",
     "openrouter",
@@ -91,6 +111,22 @@ def detect_available_providers(
         if os.environ.get(env_var):
             available.add(provider)
 
+    # Claude Code CLI and the local ONNX embedder are opt-in via their
+    # own env vars + runtime requirements (`claude` on PATH for the CLI,
+    # `chromadb` installed for the embedder). Their availability helpers
+    # own the detection logic so there's one source of truth.
+    from reflexio.server.llm.providers.claude_code_provider import (
+        is_claude_code_available,
+    )
+    from reflexio.server.llm.providers.local_embedding_provider import (
+        is_local_embedder_available,
+    )
+
+    if is_claude_code_available():
+        available.add(_CLAUDE_CODE_PROVIDER)
+    if is_local_embedder_available():
+        available.add(_LOCAL_EMBEDDING_PROVIDER)
+
     return [p for p in _PROVIDER_PRIORITY if p in available]
 
 
@@ -103,22 +139,49 @@ def detect_available_providers(
 class ProviderDefaults:
     """Default model names for a given provider.
 
+    Any field may be ``None`` for a role the provider does not support.
+    For example, the ``local`` ONNX embedder has no generation model;
+    the ``claude-code`` CLI has no embedding endpoint. ``_auto_detect_model``
+    falls through to the next provider in priority order when the
+    requested role is missing.
+
     Args:
-        generation: Model for content generation tasks.
-        evaluation: Model for evaluation/scoring tasks.
-        should_run: Model for lightweight "should run extraction" checks.
-        pre_retrieval: Model for pre-retrieval query reformulation.
-        embedding: Model for embedding generation, or None if provider has no embedding API.
+        generation: Model for content generation, or None.
+        evaluation: Model for evaluation/scoring, or None.
+        should_run: Model for lightweight "should run extraction" checks, or None.
+        pre_retrieval: Model for pre-retrieval query reformulation, or None.
+        embedding: Model for embedding generation, or None.
     """
 
-    generation: str
-    evaluation: str
-    should_run: str
-    pre_retrieval: str
+    generation: str | None
+    evaluation: str | None
+    should_run: str | None
+    pre_retrieval: str | None
     embedding: str | None
 
 
 _PROVIDER_DEFAULTS: dict[str, ProviderDefaults] = {
+    # claude-code routes through the local Claude Code CLI via LiteLLM's
+    # custom provider mechanism (see providers/claude_code_provider.py).
+    # The model-name suffix after "claude-code/" is opaque — the CLI
+    # picks whichever model the user has auth for.
+    _CLAUDE_CODE_PROVIDER: ProviderDefaults(
+        generation="claude-code/default",
+        evaluation="claude-code/default",
+        should_run="claude-code/default",
+        pre_retrieval="claude-code/default",
+        embedding=None,
+    ),
+    # local is an embedding-only provider that routes through an
+    # in-process ONNX model (chromadb's all-MiniLM-L6-v2). Generation
+    # roles stay None — use claude-code for those.
+    _LOCAL_EMBEDDING_PROVIDER: ProviderDefaults(
+        generation=None,
+        evaluation=None,
+        should_run=None,
+        pre_retrieval=None,
+        embedding="local/minilm-l6-v2",
+    ),
     "openai": ProviderDefaults(
         generation="gpt-5-mini",
         evaluation="gpt-5-mini",
@@ -233,9 +296,10 @@ def _auto_detect_model(
     """
     if not providers:
         raise RuntimeError(
-            "No LLM API keys found. Set at least one of: "
+            "No LLM provider available. Set at least one of: "
             + ", ".join(sorted(_ENV_TO_PROVIDER))
-            + " in your .env file."
+            + f" in your .env file, or set {_CLAUDE_CODE_ENABLE_ENV}=1 "
+            "with the `claude` CLI on PATH to use the local Claude Code provider."
         )
 
     if role == ModelRole.EMBEDDING:
@@ -246,12 +310,20 @@ def _auto_detect_model(
                 return defaults.embedding
         raise RuntimeError(
             "No embedding-capable LLM provider found. "
-            "Set OPENAI_API_KEY or GEMINI_API_KEY for embedding support."
+            f"Set OPENAI_API_KEY or GEMINI_API_KEY, or set "
+            f"{_LOCAL_EMBEDDING_ENABLE_ENV}=1 with `chromadb` installed "
+            "to use the local ONNX embedder."
         )
 
-    primary = providers[0]
-    defaults = _PROVIDER_DEFAULTS[primary]
-    return getattr(defaults, role.value)
+    # Non-embedding roles: fall through to the first provider whose slot
+    # for this role is non-None. Lets embedding-only providers (e.g.
+    # "local") sit in the priority list without breaking generation.
+    for provider in providers:
+        defaults = _PROVIDER_DEFAULTS[provider]
+        model_name = getattr(defaults, role.value)
+        if model_name:
+            return model_name
+    raise RuntimeError(f"No provider in {providers} supports role={role.value}.")
 
 
 def resolve_model_name(
@@ -304,9 +376,10 @@ def validate_llm_availability(
     providers = detect_available_providers(api_key_config)
     if not providers:
         raise RuntimeError(
-            "No LLM API keys found. Set at least one of: "
+            "No LLM provider available. Set at least one of: "
             + ", ".join(sorted(_ENV_TO_PROVIDER))
-            + " in your .env file."
+            + f" in your .env file, or set {_CLAUDE_CODE_ENABLE_ENV}=1 "
+            "with the `claude` CLI on PATH to use the local Claude Code provider."
         )
 
     logger.info("Auto-detected LLM providers (priority order): %s", providers)
@@ -319,6 +392,8 @@ def validate_llm_availability(
     if not embedding_provider:
         raise RuntimeError(
             "No embedding-capable LLM provider found. "
-            "Set OPENAI_API_KEY or GEMINI_API_KEY for embedding support."
+            f"Set OPENAI_API_KEY or GEMINI_API_KEY, or set "
+            f"{_LOCAL_EMBEDDING_ENABLE_ENV}=1 with `chromadb` installed "
+            "to use the local ONNX embedder."
         )
     logger.info("Embedding provider: %s", embedding_provider)

@@ -28,9 +28,26 @@ from reflexio.server.llm.image_utils import (
     encode_image_to_base64 as _encode_image_to_base64,
 )
 from reflexio.server.llm.llm_utils import is_pydantic_model
+from reflexio.server.llm.providers.claude_code_provider import (
+    register_if_enabled as _register_claude_code,
+)
+from reflexio.server.llm.providers.local_embedding_provider import (
+    LocalEmbedder,
+)
+from reflexio.server.llm.providers.local_embedding_provider import (
+    is_enabled as _local_embedder_enabled,
+)
+from reflexio.server.llm.providers.local_embedding_provider import (
+    register_if_enabled as _register_local_embedder,
+)
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
+
+# Opt-in registration of claude-smart's local providers. Both are
+# no-ops unless the matching env var is set. Safe to call at import.
+_register_claude_code()
+_register_local_embedder()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -302,6 +319,11 @@ class LiteLLMClient:
         if not akc:
             return None, None, None
 
+        # claude-code/* routes through the Claude Code CLI (custom provider);
+        # it has no API key config — auth comes from the CLI itself.
+        if model_lower.startswith("claude-code/"):
+            return None, None, None
+
         for prefix, attr in self._SIMPLE_PROVIDER_PREFIXES.items():
             if model_lower.startswith(prefix):
                 provider_cfg = getattr(akc, attr, None)
@@ -449,6 +471,18 @@ class LiteLLMClient:
             LiteLLMClientError: If embedding generation fails.
         """
         embedding_model = model or "text-embedding-3-small"
+
+        # local/* models route through the in-process ONNX embedder — no
+        # network call, no litellm API, no tiktoken truncation (the embedder
+        # applies its own token cap).
+        if embedding_model.startswith("local/") and _local_embedder_enabled():
+            try:
+                return LocalEmbedder.get().embed([text])[0]
+            except Exception as e:
+                raise LiteLLMClientError(
+                    f"Local embedding generation failed: {str(e)}"
+                ) from e
+
         text = _truncate_for_embedding(text, embedding_model)
 
         try:
@@ -496,6 +530,16 @@ class LiteLLMClient:
             return []
 
         embedding_model = model or "text-embedding-3-small"
+
+        # See matching short-circuit in get_embedding above.
+        if embedding_model.startswith("local/") and _local_embedder_enabled():
+            try:
+                return LocalEmbedder.get().embed(list(texts))
+            except Exception as e:
+                raise LiteLLMClientError(
+                    f"Local batch embedding generation failed: {str(e)}"
+                ) from e
+
         texts = [_truncate_for_embedding(t, embedding_model) for t in texts]
 
         try:
@@ -794,6 +838,10 @@ class LiteLLMClient:
             list[dict]: Messages with cache control applied where appropriate.
         """
         model_lower = model.lower()
+        # The claude-code/* custom provider routes through the Claude Code CLI,
+        # which does not accept Anthropic API cache_control content blocks.
+        if model_lower.startswith("claude-code/"):
+            return messages
         is_anthropic = "claude" in model_lower or "anthropic" in model_lower
 
         if not is_anthropic:

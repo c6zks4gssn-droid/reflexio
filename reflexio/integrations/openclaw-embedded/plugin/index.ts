@@ -1,8 +1,7 @@
 // Reflexio Embedded — Openclaw plugin entry.
 //
 // Registers lifecycle hooks against the Openclaw Plugin API:
-//   - before_prompt_build: inject SKILL.md reminder into system prompt
-//   - before_agent_start:  TTL sweep, workspace setup
+//   - before_prompt_build: TTL sweep, workspace setup, system prompt injection
 //   - before_compaction:   run extractor subagent over the session transcript
 //   - before_reset:        run extractor subagent before the transcript is wiped
 //   - session_end:         run extractor subagent on session termination
@@ -24,6 +23,7 @@ import { writeProfile } from "./lib/write-profile.ts";
 import { writePlaybook } from "./lib/write-playbook.ts";
 import { search } from "./lib/search.ts";
 import { reindexMemory, type InferFn } from "./lib/openclaw-cli.ts";
+import { runConsolidation } from "./lib/consolidate.ts";
 import {
   prepareSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel,
@@ -40,7 +40,6 @@ export default definePluginEntry({
 
     // Load agent system prompts from the plugin's own directory
     let extractorSystemPrompt: string | undefined;
-    let consolidatorSystemPrompt: string | undefined;
     try {
       extractorSystemPrompt = fs.readFileSync(
         path.join(pluginDir, "agents", "reflexio-extractor.md"),
@@ -49,36 +48,22 @@ export default definePluginEntry({
     } catch {
       log.warn?.("[reflexio-embedded] could not load reflexio-extractor.md agent definition");
     }
-    try {
-      consolidatorSystemPrompt = fs.readFileSync(
-        path.join(pluginDir, "agents", "reflexio-consolidator.md"),
-        "utf8",
-      );
-    } catch {
-      log.warn?.("[reflexio-embedded] could not load reflexio-consolidator.md agent definition");
-    }
 
-    // before_prompt_build: inject a short system-prompt reminder so the LLM
-    // knows the SKILL.md is available (replaces deprecated before_agent_start
-    // for prompt mutation).
+    // before_prompt_build: workspace setup, TTL sweep, and system-prompt injection.
     api.on("before_prompt_build", async () => {
-      return {
-        prependSystemContext: injectBootstrapReminder(),
-      };
-    });
-
-    // before_agent_start: workspace setup + TTL sweep (non-prompt tasks).
-    api.on("before_agent_start", async (_event, ctx) => {
       try {
         setupWorkspaceResources(pluginDir);
       } catch (err) {
         log.error?.(`[reflexio-embedded] workspace setup failed: ${err}`);
       }
       try {
-        await ttlSweepProfiles(ctx.workspaceDir);
+        await ttlSweepProfiles();
       } catch (err) {
         log.error?.(`[reflexio-embedded] ttl sweep failed: ${err}`);
       }
+      return {
+        prependSystemContext: injectBootstrapReminder(),
+      };
     });
 
     // before_compaction: spawn extractor BEFORE the LLM compacts history so we
@@ -280,40 +265,29 @@ export default definePluginEntry({
     });
 
     // ──────────────────────────────────────────────────────────
-    // Consolidation — spawn consolidator sub-agent
+    // Consolidation + Heartbeat
     // ──────────────────────────────────────────────────────────
+    const consolidationStateFile = path.join(os.homedir(), ".openclaw", "reflexio-consolidation-state.json");
     api.registerTool({
       name: "reflexio_run_consolidation",
       description:
-        "Spawn the reflexio-consolidator sub-agent to run a full consolidation sweep. Returns the runId. Call reflexio_consolidation_mark_done after it completes.",
+        "Run a full consolidation sweep: TTL sweep, cluster similar files, LLM-judge each cluster, write deduplicated facts, delete originals, reindex memory. Returns a summary.",
       parameters: { type: "object", properties: {} },
       optional: true,
       async execute() {
-        const runFn = api.runtime?.subagent?.run;
-        if (!runFn) {
-          return { content: [{ type: "text" as const, text: "ERROR: subagent.run unavailable" }] };
-        }
-        if (!consolidatorSystemPrompt) {
-          return { content: [{ type: "text" as const, text: "ERROR: consolidator agent definition not loaded" }] };
-        }
-        try {
-          const result = await runFn({
-            sessionKey: `reflexio-consolidator:${Date.now()}`,
-            message: "Run your full-sweep consolidation workflow now. Follow your system prompt in full.",
-            extraSystemPrompt: consolidatorSystemPrompt,
-            lane: "reflexio-consolidator",
-          });
-          return { content: [{ type: "text" as const, text: `Consolidation started. runId: ${result.runId}` }] };
-        } catch (err) {
-          return { content: [{ type: "text" as const, text: `ERROR: failed to spawn consolidator: ${err}` }] };
-        }
+        const workspaceDir = resolveWorkspaceDir();
+        // Fire and forget — don't block the agent's turn
+        runConsolidation({ workspaceDir, runner, inferFn }).then((result) => {
+          const state = { last_consolidation: new Date().toISOString() };
+          fs.mkdirSync(path.dirname(consolidationStateFile), { recursive: true });
+          fs.writeFileSync(consolidationStateFile, JSON.stringify(state, null, 2), "utf8");
+          console.info(`[reflexio] consolidation: background complete. wrote=${result.filesWritten} deleted=${result.filesDeleted}`);
+        }).catch((err) => {
+          console.error(`[reflexio] consolidation: background failed: ${err}`);
+        });
+        return { content: [{ type: "text" as const, text: "Consolidation started in background." }] };
       },
     });
-
-    // ──────────────────────────────────────────────────────────
-    // Heartbeat — consolidation check (replaces cron job)
-    // ──────────────────────────────────────────────────────────
-    const consolidationStateFile = path.join(os.homedir(), ".openclaw", "reflexio-consolidation-state.json");
 
     api.registerTool({
       name: "reflexio_consolidation_check",
@@ -337,18 +311,5 @@ export default definePluginEntry({
       },
     });
 
-    api.registerTool({
-      name: "reflexio_consolidation_mark_done",
-      description:
-        "Mark consolidation as complete. Call this after a successful consolidation run.",
-      parameters: { type: "object", properties: {} },
-      async execute() {
-        const state = { last_consolidation: new Date().toISOString() };
-        fs.mkdirSync(path.dirname(consolidationStateFile), { recursive: true });
-        fs.writeFileSync(consolidationStateFile, JSON.stringify(state, null, 2), "utf8");
-        await reindexMemory(runner);
-        return { content: [{ type: "text" as const, text: `Consolidation marked complete at ${state.last_consolidation}. Memory index rebuilt.` }] };
-      },
-    });
   },
 });

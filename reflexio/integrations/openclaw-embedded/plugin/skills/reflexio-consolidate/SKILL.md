@@ -12,8 +12,8 @@ User-invocable via `/skill reflexio-consolidate`. Same workflow that runs automa
 1. TTL sweep: delete expired profile files.
 2. For each of profiles and playbooks:
    - Cluster similar files via `memory_search`.
-   - For clusters of 2+ members, call `llm-task` with `prompts/full_consolidation.md` to decide merge / subset / keep-all.
-   - Apply decisions: write merged files with `supersedes:` frontmatter, unlink merged originals.
+   - For clusters of 2+ members, call `llm-task` with `prompts/full_consolidation.md` to decide consolidate (one-fact-per-file) or keep-all.
+   - Apply decisions: write individual fact files, delete originals.
 
 ## How to run
 

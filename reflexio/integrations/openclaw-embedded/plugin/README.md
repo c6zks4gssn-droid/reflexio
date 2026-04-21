@@ -55,7 +55,7 @@ rm -rf .reflexio/
 
 - **Profile extraction** — automatically captures user preferences, facts, and corrections from conversations into `.reflexio/profiles/`
 - **Playbook capture** — records recurring workflows and patterns into `.reflexio/playbooks/`
-- **Dedup and contradiction detection** — new entries are checked against existing ones via LLM; contradicted entries are superseded
+- **Dedup and contradiction resolution** — new entries are compared against existing ones via LLM; overlapping content is merged, contradictions resolved (new wins), and non-contradicted facts preserved
 - **Consolidation** — periodic heartbeat-triggered sweep that clusters similar entries and merges duplicates
 - **TTL management** — profiles can have time-to-live values; expired entries are swept automatically
 
@@ -69,7 +69,7 @@ Override defaults in your `openclaw.json`:
     "entries": {
       "reflexio-embedded": {
         "config": {
-          "dedup": { "shallow_threshold": 0.7, "top_k": 5 },
+          "dedup": { "shallow_threshold": 0.4, "top_k": 5 },
           "consolidation": { "threshold_hours": 24 }
         }
       }

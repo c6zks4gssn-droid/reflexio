@@ -43,6 +43,79 @@ class ExtractorExecutionError(RuntimeError):
 
 logger = logging.getLogger(__name__)
 
+
+# Cheap-signal thresholds for the pre-LLM should_run filter. Tuned for
+# coding-assistant traffic where most turns are either slash commands
+# or tool scaffolding, and where the LLM should_run gate costs 5–7s
+# even when it ultimately votes False.
+_MIN_USER_CONTENT_LEN = 30
+# Heuristic match for reflexio's own extractor system prompts that
+# sometimes leak into the corpus via the claude-code LLM provider's
+# self-invocation. Kept conservative — false positives just mean one
+# real interaction gets skipped this cycle (it'll re-enter at the next
+# publish), false negatives are what we're actually trying to avoid.
+_EXTRACTOR_PROMPT_PREFIXES = (
+    "you are a detector",
+    "you are an user signal",
+    "you are a signal detection",
+    "you are an extractor",
+)
+
+
+def _iter_user_contents(
+    session_data_models: list[RequestInteractionDataModel],
+) -> list[str]:
+    """Collect the ``content`` of every User-role interaction, order-preserving."""
+    out: list[str] = []
+    for model in session_data_models:
+        for interaction in model.interactions:
+            if interaction.role == "User" and interaction.content:
+                out.append(interaction.content)
+    return out
+
+
+def _cheap_should_run_reject(
+    session_data_models: list[RequestInteractionDataModel],
+) -> str | None:
+    """Cheap pre-filter for the consolidated should_run LLM gate.
+
+    Returns a short reason string when we can cheaply decide the batch
+    has no learnable signal — the caller logs the reason and skips the
+    LLM call. Returns None when we cannot decide cheaply and the LLM
+    should run.
+
+    Rejection rules:
+        - No user message at least ``_MIN_USER_CONTENT_LEN`` chars long
+          (purely short commands / confirmations).
+        - Every user message starts with ``/`` (slash-command-only
+          batch; e.g. ``/commit``, ``/review``).
+        - Any user message begins with a known extractor-prompt prefix
+          (reflexio talking to itself via the claude-code LLM provider).
+
+    Args:
+        session_data_models: The deduplicated per-session interaction
+            batch built by ``_collect_scoped_interactions_for_precheck``.
+
+    Returns:
+        str | None: Reason code for the reject, or None to fall through.
+    """
+    user_contents = _iter_user_contents(session_data_models)
+    if not user_contents:
+        return "no_user_turns"
+
+    for content in user_contents:
+        lowered = content.lstrip().lower()
+        if any(lowered.startswith(p) for p in _EXTRACTOR_PROMPT_PREFIXES):
+            return "extractor_prompt_echo"
+
+    if not any(len(c.strip()) >= _MIN_USER_CONTENT_LEN for c in user_contents):
+        return "all_user_turns_too_short"
+
+    if all(c.lstrip().startswith("/") for c in user_contents):
+        return "all_slash_commands"
+
+    return None
+
 # Timeout for individual extractor execution (safety net if LLM provider ignores its own timeout)
 EXTRACTOR_TIMEOUT_SECONDS = 300
 
@@ -642,6 +715,20 @@ class BaseGenerationService(
             logger.info(
                 "No interactions found for consolidated should_generate check for %s",
                 self._get_service_name(),
+            )
+            return False
+
+        # Cheap pre-filter: reject batches that are structurally unable
+        # to yield signal (slash-commands only, too-short user turns,
+        # extractor-prompt echoes) without burning a 5–7s LLM call. See
+        # _cheap_should_run_reject for the rule set.
+        reject_reason = _cheap_should_run_reject(session_data_models)
+        if reject_reason is not None:
+            logger.info(
+                "Cheap pre-filter rejected %s should_run: reason=%s identifier=%s",
+                self._get_service_name(),
+                reject_reason,
+                getattr(self.service_config, "user_id", None) or "unknown",
             )
             return False
 

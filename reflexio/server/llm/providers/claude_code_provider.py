@@ -308,6 +308,13 @@ def _run_cli(
     if system_prompt:
         cmd.extend(["--append-system-prompt", system_prompt])
 
+    # Tag the child process so any hooks it fires (e.g. claude-smart's
+    # Stop hook) can detect that this is a reflexio-internal invocation
+    # and skip publishing — otherwise extractor system prompts get
+    # re-published as user interactions and contaminate the corpus.
+    env = os.environ.copy()
+    env["CLAUDE_SMART_INTERNAL"] = "1"
+
     try:
         proc = subprocess.run(  # noqa: S603 — cmd is constructed from validated parts.
             cmd,
@@ -316,6 +323,7 @@ def _run_cli(
             text=True,
             timeout=timeout_seconds,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise ClaudeCodeCLIError(

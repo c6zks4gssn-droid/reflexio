@@ -199,7 +199,7 @@ export async function spawnExtractor(
       message,
       extraSystemPrompt,
       lane: "reflexio-extractor",
-      idempotencyKey: `${reason}:${childSessionKey}`,
+      idempotencyKey: `reflexio-extractor:${sessionKey ?? "unknown"}:${reason}`,
     });
     log?.info?.(
       `[reflexio-embedded] extractor spawned (runId=${result.runId}, reason=${reason})`,

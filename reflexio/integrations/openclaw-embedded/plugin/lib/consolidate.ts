@@ -125,7 +125,7 @@ async function clusterFiles(
  */
 function formatCluster(cluster: FileEntry[]): string {
   return cluster
-    .map((f) => `- id: ${f.id}\n  path: ${f.path}\n  content: ${f.content}`)
+    .map((f) => `- id: ${f.id}\n  created: ${f.created ?? "unknown"}\n  content: ${f.content}`)
     .join("\n\n");
 }
 
@@ -198,7 +198,8 @@ export async function runConsolidation(opts: {
         // Write new fact files
         for (const fact of decision.facts) {
           if (type === "profile") {
-            const ttl = pickSmallestTtl(cluster);
+            const sourceFiles = (fact.source_ids ?? []).map((id) => idToFile.get(id)).filter((f): f is FileEntry => f !== undefined);
+            const ttl = sourceFiles.length > 0 ? pickSmallestTtl(sourceFiles) : pickSmallestTtl(cluster);
             const supersedes = fact.source_ids?.filter((id) => idToFile.has(id));
             writeProfileFile({ slug: fact.slug, ttl, body: fact.body, supersedes, workspace: opts.workspaceDir });
             result.filesWritten++;

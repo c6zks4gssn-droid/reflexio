@@ -57,7 +57,7 @@ export default definePluginEntry({
         log.error?.(`[reflexio-embedded] workspace setup failed: ${err}`);
       }
       try {
-        await ttlSweepProfiles();
+        await ttlSweepProfiles(resolveWorkspaceDir());
       } catch (err) {
         log.error?.(`[reflexio-embedded] ttl sweep failed: ${err}`);
       }
@@ -267,7 +267,12 @@ export default definePluginEntry({
     // ──────────────────────────────────────────────────────────
     // Consolidation + Heartbeat
     // ──────────────────────────────────────────────────────────
-    const consolidationStateFile = path.join(os.homedir(), ".openclaw", "reflexio-consolidation-state.json");
+    let consolidationRunning = false;
+
+    function getConsolidationStateFile(): string {
+      return path.join(resolveWorkspaceDir(), ".reflexio", "consolidation-state.json");
+    }
+
     api.registerTool({
       name: "reflexio_run_consolidation",
       description:
@@ -275,15 +280,22 @@ export default definePluginEntry({
       parameters: { type: "object", properties: {} },
       optional: true,
       async execute() {
+        if (consolidationRunning) {
+          return { content: [{ type: "text" as const, text: "Consolidation already running." }] };
+        }
+        consolidationRunning = true;
         const workspaceDir = resolveWorkspaceDir();
+        const stateFile = getConsolidationStateFile();
         // Fire and forget — don't block the agent's turn
         runConsolidation({ workspaceDir, runner, inferFn }).then((result) => {
           const state = { last_consolidation: new Date().toISOString() };
-          fs.mkdirSync(path.dirname(consolidationStateFile), { recursive: true });
-          fs.writeFileSync(consolidationStateFile, JSON.stringify(state, null, 2), "utf8");
+          fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+          fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), "utf8");
           console.info(`[reflexio] consolidation: background complete. wrote=${result.filesWritten} deleted=${result.filesDeleted}`);
         }).catch((err) => {
           console.error(`[reflexio] consolidation: background failed: ${err}`);
+        }).finally(() => {
+          consolidationRunning = false;
         });
         return { content: [{ type: "text" as const, text: "Consolidation started in background." }] };
       },
@@ -297,7 +309,7 @@ export default definePluginEntry({
       async execute() {
         const thresholdHours = config.consolidation?.threshold_hours ?? 24;
         try {
-          const state = JSON.parse(fs.readFileSync(consolidationStateFile, "utf8"));
+          const state = JSON.parse(fs.readFileSync(getConsolidationStateFile(), "utf8"));
           const elapsedMs = Date.now() - new Date(state.last_consolidation).getTime();
           const elapsedHours = elapsedMs / 3_600_000;
           if (elapsedHours < thresholdHours) {

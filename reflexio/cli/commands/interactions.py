@@ -18,7 +18,7 @@ from reflexio.cli.output import (
     print_interactions,
     render,
 )
-from reflexio.cli.state import get_client, resolve_agent_version
+from reflexio.cli.state import get_client, require_user_id, resolve_agent_version
 from reflexio.models.api_schema.service_schemas import (
     InteractionData,
     PublishUserInteractionResponse,
@@ -391,7 +391,8 @@ def list_interactions(
 ) -> None:
     """List interactions, optionally filtered by user."""
     client = get_client(ctx)
-    result = client.get_interactions(user_id=user_id, top_k=limit)
+    resolved_user_id = require_user_id(user_id, command_hint="interactions list")
+    result = client.get_interactions(user_id=resolved_user_id, top_k=limit)
     interactions = result.interactions or []
 
     json_mode: bool = ctx.obj.json_mode

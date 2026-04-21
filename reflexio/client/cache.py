@@ -103,6 +103,7 @@ class InMemoryCache:
         with self._lock:
             self._cache[cache_key] = {
                 "data": value,
+                "method_name": method_name,
                 "timestamp": datetime.now(),
                 "expires_at": datetime.now() + timedelta(seconds=self._ttl_seconds),
             }
@@ -110,6 +111,30 @@ class InMemoryCache:
             # Cleanup expired entries periodically (every 100 sets)
             if len(self._cache) % 100 == 0:
                 self._cleanup_expired()
+
+    def clear(self) -> None:
+        """Remove all entries from the cache."""
+        with self._lock:
+            self._cache.clear()
+
+    def invalidate(self, method_name: str) -> int:
+        """Remove all entries cached under a given method name.
+
+        Args:
+            method_name: The method name whose entries should be removed.
+
+        Returns:
+            int: Number of entries removed.
+        """
+        with self._lock:
+            keys_to_remove = [
+                key
+                for key, entry in self._cache.items()
+                if entry.get("method_name") == method_name
+            ]
+            for key in keys_to_remove:
+                del self._cache[key]
+            return len(keys_to_remove)
 
     def _cleanup_expired(self) -> None:
         """

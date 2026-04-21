@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from enum import Enum
@@ -685,22 +686,43 @@ def _upsert_hook(hooks: dict, event_name: str, hook_command: str) -> None:
     event_hooks.append(hook_entry)
 
 
-def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
+def _remove_reflexio_hook(hooks: dict, event_name: str) -> None:
+    """Remove any Reflexio hook entry for the given event.
+
+    Args:
+        hooks: The hooks dict from settings.json.
+        event_name: The hook event name to clean up.
+    """
+    if event_name not in hooks:
+        return
+    hooks[event_name] = [
+        entry
+        for entry in hooks[event_name]
+        if not any("reflexio" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
+    if not hooks[event_name]:
+        del hooks[event_name]
+
+
+def _merge_hook_config(
+    settings_path: Path, handler_js_path: Path, *, expert: bool = False
+) -> None:
     """Add or update Reflexio hooks in .claude/settings.json.
 
-    Installs two hooks:
+    Installs two hooks (three in expert mode):
     - SessionStart: checks if the Reflexio server is running and starts it in
       the background if not (~10ms, non-blocking).
-    - UserPromptSubmit: runs `reflexio search` on every user prompt and injects
+    - UserPromptSubmit: runs ``reflexio search`` on every user prompt and injects
       results as context Claude sees.
 
-    No Stop hook is installed — conversation capture is handled by the expert
-    skill's mid-session publish or by an explicit `/reflexio-extract` command,
-    giving the user control over when to extract learnings.
+    In expert mode, also installs a SessionEnd hook that captures the full session
+    transcript on exit as a safety net — ensures learnings are extracted even
+    when the user doesn't manually invoke ``/reflexio-extract``.
 
     Args:
         settings_path: Path to the project's .claude/settings.json.
         handler_js_path: Absolute path to handler.js in the installed package.
+        expert: When True, also install the SessionEnd hook for session capture.
     """
     settings: dict = {}
     if settings_path.exists():
@@ -711,11 +733,23 @@ def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
 
     # Session start hook (SessionStart) — checks/starts Reflexio server proactively
     session_start_hook_sh = handler_js_path.parent / "session_start_hook.sh"
-    _upsert_hook(hooks, "SessionStart", f"bash {session_start_hook_sh}")
+    _upsert_hook(
+        hooks, "SessionStart", f"bash {shlex.quote(str(session_start_hook_sh))}"
+    )
 
     # Search hook (UserPromptSubmit) — injects Reflexio context before Claude responds
     search_hook_js = handler_js_path.parent / "search_hook.js"
-    _upsert_hook(hooks, "UserPromptSubmit", f"node {search_hook_js}")
+    _upsert_hook(
+        hooks, "UserPromptSubmit", f"node {shlex.quote(str(search_hook_js))}"
+    )
+
+    # SessionEnd hook — captures full session transcript on exit (expert mode only)
+    if expert:
+        _upsert_hook(
+            hooks, "SessionEnd", f"node {shlex.quote(str(handler_js_path))}"
+        )
+    else:
+        _remove_reflexio_hook(hooks, "SessionEnd")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -738,7 +772,7 @@ def _remove_hook_config(settings_path: Path) -> None:
     if not hooks:
         return
 
-    for event_name in ["Stop", "UserPromptSubmit", "SessionStart"]:
+    for event_name in ["SessionEnd", "Stop", "UserPromptSubmit", "SessionStart"]:
         event_hooks = hooks.get(event_name, [])
         hooks[event_name] = [
             entry
@@ -819,17 +853,30 @@ def _install_claude_code_integration(
     rules_dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(rules_src, rules_dest)
 
-    # Expert mode: also install /reflexio-extract command
+    # Expert mode: also install /reflexio-extract command and skill references
+    # Normal mode: remove expert-only artifacts from any prior expert install
+    cmd_dir = claude_dir / "commands" / "reflexio-extract"
+    refs_dir = claude_dir / "skills" / "reflexio" / "references"
     if expert:
         cmd_src = integration_dir / "commands" / "reflexio-extract" / "SKILL.md"
-        cmd_dest = claude_dir / "commands" / "reflexio-extract" / "SKILL.md"
-        cmd_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cmd_src, cmd_dest)
+        cmd_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cmd_src, cmd_dir / "SKILL.md")
+
+        refs_src = integration_dir / "skill" / "references"
+        if refs_src.exists():
+            if refs_dir.exists():
+                shutil.rmtree(refs_dir)
+            shutil.copytree(refs_src, refs_dir)
+    else:
+        if cmd_dir.exists():
+            shutil.rmtree(cmd_dir)
+        if refs_dir.exists():
+            shutil.rmtree(refs_dir)
 
     # Configure hook
     handler_js = integration_dir / "hook" / "handler.js"
     settings_path = claude_dir / "settings.json"
-    _merge_hook_config(settings_path, handler_js)
+    _merge_hook_config(settings_path, handler_js, expert=expert)
 
     # Write marker for uninstall auto-detection
     marker_path = claude_dir / "skills" / "reflexio" / _MARKER_FILENAME
@@ -1078,7 +1125,10 @@ def claude_code_setup(
     typer.echo(f"  Storage: {storage_label}")
     typer.echo(f"  User ID: {user_id}")
     typer.echo(f"  Skill ({skill_type}): {skill_path}")
-    typer.echo("  Hooks: SessionStart + UserPromptSubmit")
+    hooks_list = "SessionStart + UserPromptSubmit"
+    if expert:
+        hooks_list += " + SessionEnd"
+    typer.echo(f"  Hooks: {hooks_list}")
     if location == InstallLocation.ALL_PROJECTS:
         typer.echo("")
         typer.echo("Note: User-level hooks fire for ALL Claude Code sessions.")

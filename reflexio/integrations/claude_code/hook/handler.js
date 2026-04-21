@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Claude Code Stop hook for Reflexio.
+ * Claude Code SessionEnd hook for Reflexio.
  *
  * Reads the full session transcript from the JSONL file provided in the
  * Stop event payload, extracts user queries and assistant text responses,
@@ -13,18 +13,18 @@ import { join } from "node:path";
  * Usage in settings.json:
  *   {
  *     "hooks": {
- *       "Stop": [{ "type": "command", "command": "node /path/to/handler.js" }]
+ *       "SessionEnd": [{ "type": "command", "command": "node /path/to/handler.js" }]
  *     }
  *   }
  *
  * The hook reads event JSON from stdin with these fields:
  *   - session_id: string
  *   - transcript_path: string (path to .jsonl transcript file)
- *   - stop_hook_active: boolean (true if this is a hook-triggered stop)
  */
 
 const MAX_INTERACTIONS = 200;
 const MAX_CONTENT_LENGTH = 10_000;
+const LOG_DIR = join(homedir(), ".reflexio", "logs");
 
 /**
  * Read a variable from ~/.reflexio/.env when it is not set in process.env.
@@ -56,12 +56,6 @@ async function main() {
 		event = JSON.parse(input);
 	} catch {
 		console.error("[reflexio] Failed to parse event JSON from stdin");
-		output({});
-		return;
-	}
-
-	// Guard: prevent infinite loops when stop_hook_active is set
-	if (event.stop_hook_active) {
 		output({});
 		return;
 	}
@@ -115,11 +109,19 @@ async function main() {
 	// Cleanup is handled by the shell command itself (rm -f after publish),
 	// not by Node.js event handlers, since child.unref() means the parent
 	// exits before the child finishes.
+	mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
+	const logFile = join(LOG_DIR, "stop-hook.log");
 	const child = spawn(
 		"sh",
 		[
 			"-c",
-			`reflexio interactions publish --user-id "${userId}" --file "${payloadFile}" --source "claude-code" --agent-version "${agentVersion}" --session-id "${sessionId || "unknown"}" ; rm -f "${payloadFile}"`,
+			'reflexio interactions publish --user-id "$1" --file "$2" --source "claude-code" --agent-version "$3" --session-id "$4" --force-extraction >> "$5" 2>&1; rm -f "$2"',
+			"sh",
+			userId,
+			payloadFile,
+			agentVersion,
+			sessionId || "unknown",
+			logFile,
 		],
 		{
 			detached: true,

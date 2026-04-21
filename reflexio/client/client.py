@@ -440,9 +440,12 @@ class ReflexioClient:
             skip_aggregation=skip_aggregation,
             force_extraction=force_extraction,
         )
-        return self._publish_interaction_sync(
+        result = self._publish_interaction_sync(
             request, wait_for_response=wait_for_response
         )
+        self._cache.invalidate("get_profiles")
+        self._cache.invalidate("get_agent_playbooks")
+        return result
 
     def search_interactions(
         self,
@@ -706,6 +709,7 @@ class ReflexioClient:
             search_query=search_query,
         )
 
+        self._cache.invalidate("get_profiles")
         if wait_for_response:
             # Synchronous blocking call
             return self._delete_profile_sync(request)
@@ -898,6 +902,7 @@ class ReflexioClient:
         """
         request = DeleteAgentPlaybookRequest(agent_playbook_id=agent_playbook_id)
 
+        self._cache.invalidate("get_agent_playbooks")
         if wait_for_response:
             # Synchronous blocking call
             return self._delete_agent_playbook_sync(request)
@@ -1388,6 +1393,7 @@ class ReflexioClient:
             "/api/update_agent_playbook",
             json=request.model_dump(),
         )
+        self._cache.invalidate("get_agent_playbooks")
         return UpdateAgentPlaybookResponse(**response)
 
     def update_agent_playbook_status(
@@ -1421,6 +1427,7 @@ class ReflexioClient:
             "/api/update_agent_playbook_status",
             json=request.model_dump(),
         )
+        self._cache.invalidate("get_agent_playbooks")
         return UpdatePlaybookStatusResponse(**response)
 
     def get_agent_playbooks(
@@ -2069,6 +2076,7 @@ class ReflexioClient:
         response = self._make_request(
             "DELETE", "/api/delete_profiles_by_ids", json=req.model_dump()
         )
+        self._cache.invalidate("get_profiles")
         return BulkDeleteResponse(**response)
 
     def delete_agent_playbooks_by_ids(
@@ -2086,6 +2094,7 @@ class ReflexioClient:
         response = self._make_request(
             "DELETE", "/api/delete_agent_playbooks_by_ids", json=req.model_dump()
         )
+        self._cache.invalidate("get_agent_playbooks")
         return BulkDeleteResponse(**response)
 
     def delete_user_playbooks_by_ids(
@@ -2136,6 +2145,7 @@ class ReflexioClient:
             BulkDeleteResponse: Response containing success status and deleted count
         """
         response = self._make_request("DELETE", "/api/delete_all_interactions")
+        self._cache.clear()
         return BulkDeleteResponse(**response)
 
     def delete_all_profiles(self) -> BulkDeleteResponse:
@@ -2145,6 +2155,7 @@ class ReflexioClient:
             BulkDeleteResponse: Response containing success status and deleted count
         """
         response = self._make_request("DELETE", "/api/delete_all_profiles")
+        self._cache.invalidate("get_profiles")
         return BulkDeleteResponse(**response)
 
     def delete_all_playbooks(self) -> BulkDeleteResponse:
@@ -2158,6 +2169,7 @@ class ReflexioClient:
             BulkDeleteResponse: Response containing success status and deleted count
         """
         response = self._make_request("DELETE", "/api/delete_all_playbooks")
+        self._cache.clear()
         return BulkDeleteResponse(**response)
 
     def delete_all_user_playbooks(self) -> BulkDeleteResponse:
@@ -2167,7 +2179,7 @@ class ReflexioClient:
             BulkDeleteResponse: Response containing success status and deleted count
         """
         response = self._make_request("DELETE", "/api/delete_all_user_playbooks")
-        return BulkDeleteResponse(**response)
+        return BulkDeleteResponse(**response)  # user playbooks not cached
 
     def delete_all_agent_playbooks(self) -> BulkDeleteResponse:
         """Delete all agent playbooks (agent only, not user).
@@ -2176,4 +2188,5 @@ class ReflexioClient:
             BulkDeleteResponse: Response containing success status and deleted count
         """
         response = self._make_request("DELETE", "/api/delete_all_agent_playbooks")
+        self._cache.invalidate("get_agent_playbooks")
         return BulkDeleteResponse(**response)

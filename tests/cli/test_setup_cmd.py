@@ -325,6 +325,24 @@ class TestInstallClaudeCodeIntegration:
         cmd = tmp_path / ".claude" / "commands" / "reflexio-extract" / "SKILL.md"
         assert not cmd.exists()
 
+    def test_expert_mode_installs_references(self, tmp_path: Path) -> None:
+        """Expert mode copies skill references directory."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        refs = tmp_path / ".claude" / "skills" / "reflexio" / "references"
+        assert refs.exists()
+        assert (refs / "proactive-patterns.md").exists()
+        assert (refs / "server-management.md").exists()
+
+    def test_normal_mode_no_references(self, tmp_path: Path) -> None:
+        """Normal mode does not install skill references."""
+        _install_claude_code_integration(
+            tmp_path, location=InstallLocation.CURRENT_PROJECT
+        )
+        refs = tmp_path / ".claude" / "skills" / "reflexio" / "references"
+        assert not refs.exists()
+
     def test_hooks_in_settings_json(self, tmp_path: Path) -> None:
         """Hooks are written to settings.json with correct events."""
         _install_claude_code_integration(
@@ -333,6 +351,59 @@ class TestInstallClaudeCodeIntegration:
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert "SessionStart" in settings["hooks"]
         assert "UserPromptSubmit" in settings["hooks"]
+
+    def test_normal_mode_no_session_end_hook(self, tmp_path: Path) -> None:
+        """Normal mode does not install the SessionEnd hook."""
+        _install_claude_code_integration(
+            tmp_path, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "SessionEnd" not in settings["hooks"]
+
+    def test_expert_mode_installs_session_end_hook(self, tmp_path: Path) -> None:
+        """Expert mode installs SessionEnd hook alongside SessionStart and UserPromptSubmit."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "SessionEnd" in settings["hooks"]
+        assert len(settings["hooks"]["SessionEnd"]) == 1
+        # Verify the SessionEnd hook command points to handler.js
+        cmd = settings["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
+        assert "handler.js" in cmd
+        assert cmd.startswith("node ")
+
+    def test_expert_mode_session_end_hook_idempotent(self, tmp_path: Path) -> None:
+        """Running expert install twice doesn't duplicate the SessionEnd hook."""
+        for _ in range(2):
+            _install_claude_code_integration(
+                tmp_path, expert=True, location=InstallLocation.ALL_PROJECTS
+            )
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert len(settings["hooks"]["SessionEnd"]) == 1
+        assert len(settings["hooks"]["SessionStart"]) == 1
+        assert len(settings["hooks"]["UserPromptSubmit"]) == 1
+
+    def test_normal_reinstall_removes_expert_artifacts(self, tmp_path: Path) -> None:
+        """Re-installing in normal mode removes expert-only files and hooks."""
+        # First install in expert mode
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        claude_dir = tmp_path / ".claude"
+        assert (claude_dir / "commands" / "reflexio-extract").exists()
+        assert (claude_dir / "skills" / "reflexio" / "references").exists()
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        assert "SessionEnd" in settings["hooks"]
+
+        # Re-install in normal mode
+        _install_claude_code_integration(
+            tmp_path, expert=False, location=InstallLocation.CURRENT_PROJECT
+        )
+        assert not (claude_dir / "commands" / "reflexio-extract").exists()
+        assert not (claude_dir / "skills" / "reflexio" / "references").exists()
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        assert "SessionEnd" not in settings.get("hooks", {})
 
     def test_idempotent_install(self, tmp_path: Path) -> None:
         """Running install twice doesn't corrupt files or duplicate hooks."""
@@ -413,6 +484,20 @@ class TestUninstallDetection:
         # settings.json should have empty hooks
         settings = json.loads((claude_dir / "settings.json").read_text())
         assert "hooks" not in settings or not settings.get("hooks")
+
+    def test_remove_from_dir_cleans_session_end_hook(self, tmp_path: Path) -> None:
+        """Uninstall removes the SessionEnd hook installed by expert mode."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        assert "SessionEnd" in settings["hooks"]
+
+        _remove_from_dir(tmp_path)
+
+        settings = json.loads(settings_path.read_text())
+        assert "hooks" not in settings or "SessionEnd" not in settings.get("hooks", {})
 
     def test_marker_file_metadata(self, tmp_path: Path) -> None:
         """Marker file contains location and installed_at fields."""

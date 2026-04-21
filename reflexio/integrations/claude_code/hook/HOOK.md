@@ -31,7 +31,7 @@ This ensures the server is ready before the first `UserPromptSubmit` search hook
 ### On `SessionEnd` (session end)
 
 1. Reads the session transcript JSONL file from `transcript_path` in the event payload
-2. Extracts user queries and assistant text responses (skips thinking blocks, tool calls, system messages)
+2. Extracts user queries and assistant responses — preserves text and tool_use blocks (as `tools_used` metadata), skips thinking blocks and system messages
 3. Writes the formatted payload to a temp file
 4. Spawns a detached `reflexio interactions publish --force-extraction --file <payload>` process (fire-and-forget)
 5. Logs publish output to `~/.reflexio/logs/stop-hook.log` for diagnostics

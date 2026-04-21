@@ -13,7 +13,7 @@ If `REFLEXIO_URL` points to a non-localhost URL (e.g., `https://reflexio.ai`), t
 **Check:** `reflexio status check`
 
 **Start (background subagent):**
-```
+```text
 Agent(prompt="Start the Reflexio server: nohup reflexio services start --only backend > ~/.reflexio/logs/server.log 2>&1 & sleep 5 && reflexio status check", run_in_background=true)
 ```
 

@@ -115,7 +115,13 @@ async function main() {
 		"sh",
 		[
 			"-c",
-			`reflexio interactions publish --user-id "${userId}" --file "${payloadFile}" --source "claude-code" --agent-version "${agentVersion}" --session-id "${sessionId || "unknown"}" --force-extraction >> "${logFile}" 2>&1 ; rm -f "${payloadFile}"`,
+			'reflexio interactions publish --user-id "$1" --file "$2" --source "claude-code" --agent-version "$3" --session-id "$4" --force-extraction >> "$5" 2>&1; rm -f "$2"',
+			"sh",
+			userId,
+			payloadFile,
+			agentVersion,
+			sessionId || "unknown",
+			logFile,
 		],
 		{
 			detached: true,

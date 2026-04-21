@@ -384,6 +384,27 @@ class TestInstallClaudeCodeIntegration:
         assert len(settings["hooks"]["SessionStart"]) == 1
         assert len(settings["hooks"]["UserPromptSubmit"]) == 1
 
+    def test_normal_reinstall_removes_expert_artifacts(self, tmp_path: Path) -> None:
+        """Re-installing in normal mode removes expert-only files and hooks."""
+        # First install in expert mode
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        claude_dir = tmp_path / ".claude"
+        assert (claude_dir / "commands" / "reflexio-extract").exists()
+        assert (claude_dir / "skills" / "reflexio" / "references").exists()
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        assert "SessionEnd" in settings["hooks"]
+
+        # Re-install in normal mode
+        _install_claude_code_integration(
+            tmp_path, expert=False, location=InstallLocation.CURRENT_PROJECT
+        )
+        assert not (claude_dir / "commands" / "reflexio-extract").exists()
+        assert not (claude_dir / "skills" / "reflexio" / "references").exists()
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        assert "SessionEnd" not in settings.get("hooks", {})
+
     def test_idempotent_install(self, tmp_path: Path) -> None:
         """Running install twice doesn't corrupt files or duplicate hooks."""
         for _ in range(2):

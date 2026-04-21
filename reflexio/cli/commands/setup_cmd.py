@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from enum import Enum
@@ -685,6 +686,24 @@ def _upsert_hook(hooks: dict, event_name: str, hook_command: str) -> None:
     event_hooks.append(hook_entry)
 
 
+def _remove_reflexio_hook(hooks: dict, event_name: str) -> None:
+    """Remove any Reflexio hook entry for the given event.
+
+    Args:
+        hooks: The hooks dict from settings.json.
+        event_name: The hook event name to clean up.
+    """
+    if event_name not in hooks:
+        return
+    hooks[event_name] = [
+        entry
+        for entry in hooks[event_name]
+        if not any("reflexio" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
+    if not hooks[event_name]:
+        del hooks[event_name]
+
+
 def _merge_hook_config(
     settings_path: Path, handler_js_path: Path, *, expert: bool = False
 ) -> None:
@@ -714,15 +733,23 @@ def _merge_hook_config(
 
     # Session start hook (SessionStart) — checks/starts Reflexio server proactively
     session_start_hook_sh = handler_js_path.parent / "session_start_hook.sh"
-    _upsert_hook(hooks, "SessionStart", f"bash {session_start_hook_sh}")
+    _upsert_hook(
+        hooks, "SessionStart", f"bash {shlex.quote(str(session_start_hook_sh))}"
+    )
 
     # Search hook (UserPromptSubmit) — injects Reflexio context before Claude responds
     search_hook_js = handler_js_path.parent / "search_hook.js"
-    _upsert_hook(hooks, "UserPromptSubmit", f"node {search_hook_js}")
+    _upsert_hook(
+        hooks, "UserPromptSubmit", f"node {shlex.quote(str(search_hook_js))}"
+    )
 
     # SessionEnd hook — captures full session transcript on exit (expert mode only)
     if expert:
-        _upsert_hook(hooks, "SessionEnd", f"node {handler_js_path}")
+        _upsert_hook(
+            hooks, "SessionEnd", f"node {shlex.quote(str(handler_js_path))}"
+        )
+    else:
+        _remove_reflexio_hook(hooks, "SessionEnd")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -827,18 +854,24 @@ def _install_claude_code_integration(
     shutil.copy2(rules_src, rules_dest)
 
     # Expert mode: also install /reflexio-extract command and skill references
+    # Normal mode: remove expert-only artifacts from any prior expert install
+    cmd_dir = claude_dir / "commands" / "reflexio-extract"
+    refs_dir = claude_dir / "skills" / "reflexio" / "references"
     if expert:
         cmd_src = integration_dir / "commands" / "reflexio-extract" / "SKILL.md"
-        cmd_dest = claude_dir / "commands" / "reflexio-extract" / "SKILL.md"
-        cmd_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cmd_src, cmd_dest)
+        cmd_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cmd_src, cmd_dir / "SKILL.md")
 
         refs_src = integration_dir / "skill" / "references"
         if refs_src.exists():
-            refs_dest = claude_dir / "skills" / "reflexio" / "references"
-            if refs_dest.exists():
-                shutil.rmtree(refs_dest)
-            shutil.copytree(refs_src, refs_dest)
+            if refs_dir.exists():
+                shutil.rmtree(refs_dir)
+            shutil.copytree(refs_src, refs_dir)
+    else:
+        if cmd_dir.exists():
+            shutil.rmtree(cmd_dir)
+        if refs_dir.exists():
+            shutil.rmtree(refs_dir)
 
     # Configure hook
     handler_js = integration_dir / "hook" / "handler.js"

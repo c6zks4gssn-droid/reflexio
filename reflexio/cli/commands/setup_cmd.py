@@ -696,14 +696,14 @@ def _merge_hook_config(
     - UserPromptSubmit: runs ``reflexio search`` on every user prompt and injects
       results as context Claude sees.
 
-    In expert mode, also installs a Stop hook that captures the full session
+    In expert mode, also installs a SessionEnd hook that captures the full session
     transcript on exit as a safety net — ensures learnings are extracted even
     when the user doesn't manually invoke ``/reflexio-extract``.
 
     Args:
         settings_path: Path to the project's .claude/settings.json.
         handler_js_path: Absolute path to handler.js in the installed package.
-        expert: When True, also install the Stop hook for session capture.
+        expert: When True, also install the SessionEnd hook for session capture.
     """
     settings: dict = {}
     if settings_path.exists():
@@ -720,9 +720,9 @@ def _merge_hook_config(
     search_hook_js = handler_js_path.parent / "search_hook.js"
     _upsert_hook(hooks, "UserPromptSubmit", f"node {search_hook_js}")
 
-    # Stop hook (Stop) — captures full session transcript on exit (expert mode only)
+    # SessionEnd hook — captures full session transcript on exit (expert mode only)
     if expert:
-        _upsert_hook(hooks, "Stop", f"node {handler_js_path}")
+        _upsert_hook(hooks, "SessionEnd", f"node {handler_js_path}")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -745,7 +745,7 @@ def _remove_hook_config(settings_path: Path) -> None:
     if not hooks:
         return
 
-    for event_name in ["Stop", "UserPromptSubmit", "SessionStart"]:
+    for event_name in ["SessionEnd", "Stop", "UserPromptSubmit", "SessionStart"]:
         event_hooks = hooks.get(event_name, [])
         hooks[event_name] = [
             entry
@@ -1087,7 +1087,7 @@ def claude_code_setup(
     typer.echo(f"  Skill ({skill_type}): {skill_path}")
     hooks_list = "SessionStart + UserPromptSubmit"
     if expert:
-        hooks_list += " + Stop"
+        hooks_list += " + SessionEnd"
     typer.echo(f"  Hooks: {hooks_list}")
     if location == InstallLocation.ALL_PROJECTS:
         typer.echo("")

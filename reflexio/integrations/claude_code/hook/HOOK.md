@@ -1,7 +1,7 @@
 ---
 name: reflexio-hooks
 description: "Claude Code hooks for Reflexio: server auto-start, context search, and session capture"
-events: ["SessionStart", "UserPromptSubmit", "Stop"]
+events: ["SessionStart", "UserPromptSubmit", "SessionEnd"]
 requires:
   bins: ["reflexio", "node", "bash", "curl"]
 ---
@@ -28,7 +28,7 @@ This ensures the server is ready before the first `UserPromptSubmit` search hook
 2. Injects matching profiles and playbooks as context Claude sees before responding
 3. Falls back to starting the server if it is down (redundant safety net for mid-session crashes)
 
-### On `Stop` (session end)
+### On `SessionEnd` (session end)
 
 1. Reads the session transcript JSONL file from `transcript_path` in the event payload
 2. Extracts user queries and assistant text responses (skips thinking blocks, tool calls, system messages)
@@ -58,7 +58,7 @@ The `--force-extraction` flag ensures extraction always runs, even if a mid-sess
 
 ## Installation
 
-Run `reflexio setup claude-code` to install automatically (add `--expert` for the Stop hook), or add to your Claude Code `settings.json` manually:
+Run `reflexio setup claude-code` to install automatically (add `--expert` for the SessionEnd hook), or add to your Claude Code `settings.json` manually:
 
 ```json
 {
@@ -85,7 +85,7 @@ Run `reflexio setup claude-code` to install automatically (add `--expert` for th
         ]
       }
     ],
-    "Stop": [
+    "SessionEnd": [
       {
         "matcher": "",
         "hooks": [

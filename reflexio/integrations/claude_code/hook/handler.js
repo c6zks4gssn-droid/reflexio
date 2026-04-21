@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Claude Code Stop hook for Reflexio.
+ * Claude Code SessionEnd hook for Reflexio.
  *
  * Reads the full session transcript from the JSONL file provided in the
  * Stop event payload, extracts user queries and assistant text responses,
@@ -13,7 +13,7 @@ import { join } from "node:path";
  * Usage in settings.json:
  *   {
  *     "hooks": {
- *       "Stop": [{ "type": "command", "command": "node /path/to/handler.js" }]
+ *       "SessionEnd": [{ "type": "command", "command": "node /path/to/handler.js" }]
  *     }
  *   }
  *

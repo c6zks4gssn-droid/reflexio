@@ -137,6 +137,54 @@ class TestInMemoryCache:
             assert result == f"value_{thread_id}"  # noqa: S101
 
 
+    def test_clear_removes_all_entries(self):
+        """Test that clear() removes all cached entries."""
+        cache = InMemoryCache()
+        cache.set("method_a", "value1", key="1")
+        cache.set("method_b", "value2", key="2")
+        cache.set("method_a", "value3", key="3")
+
+        cache.clear()
+
+        assert cache.get("method_a", key="1") is None
+        assert cache.get("method_b", key="2") is None
+        assert cache.get("method_a", key="3") is None
+
+    def test_invalidate_removes_matching_method(self):
+        """Test that invalidate() removes only entries for the given method."""
+        cache = InMemoryCache()
+        cache.set("get_profiles", "profiles_1", user_id="u1")
+        cache.set("get_profiles", "profiles_2", user_id="u2")
+        cache.set("get_agent_playbooks", "playbooks_1", limit=100)
+
+        removed = cache.invalidate("get_profiles")
+
+        assert removed == 2
+        assert cache.get("get_profiles", user_id="u1") is None
+        assert cache.get("get_profiles", user_id="u2") is None
+        assert cache.get("get_agent_playbooks", limit=100) == "playbooks_1"
+
+    def test_invalidate_returns_zero_for_nonexistent_method(self):
+        """Test that invalidate() returns 0 when no entries match."""
+        cache = InMemoryCache()
+        cache.set("get_profiles", "value", user_id="u1")
+
+        removed = cache.invalidate("nonexistent_method")
+
+        assert removed == 0
+        assert cache.get("get_profiles", user_id="u1") == "value"
+
+    def test_invalidate_on_empty_cache(self):
+        """Test that invalidate() on empty cache returns 0."""
+        cache = InMemoryCache()
+        assert cache.invalidate("any_method") == 0
+
+    def test_clear_on_empty_cache(self):
+        """Test that clear() on empty cache doesn't error."""
+        cache = InMemoryCache()
+        cache.clear()  # should not raise
+
+
 class TestReflexioClientCache:
     """Test cases for cache integration in ReflexioClient."""
 
@@ -327,6 +375,77 @@ class TestReflexioClientCache:
 
         # Verify API was only called once
         assert mock_session.request.call_count == 1  # noqa: S101
+
+    @patch("reflexio.client.client.requests.Session")
+    def test_delete_all_profiles_invalidates_cache(self, mock_session_class):
+        """Test that delete_all_profiles clears the profiles cache."""
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+        mock_response = MagicMock()
+        mock_response.json.side_effect = [
+            # First get_profiles call
+            {"success": True, "user_profiles": [], "msg": None},
+            # delete_all_profiles call
+            {"success": True, "deleted_count": 5, "msg": "Deleted"},
+            # Second get_profiles call (after invalidation)
+            {"success": True, "user_profiles": [], "msg": None},
+        ]
+        mock_session.request.return_value = mock_response
+
+        client = ReflexioClient(api_key="test_key")
+
+        # Populate cache
+        request = {"user_id": "user1", "start_time": None, "end_time": None, "top_k": 30}
+        client.get_profiles(request)
+        assert mock_session.request.call_count == 1  # noqa: S101
+
+        # Cache should be hit
+        client.get_profiles(request)
+        assert mock_session.request.call_count == 1  # noqa: S101
+
+        # Delete all profiles — should invalidate cache
+        client.delete_all_profiles()
+        assert mock_session.request.call_count == 2  # noqa: S101
+
+        # Next get_profiles should miss cache and hit API
+        client.get_profiles(request)
+        assert mock_session.request.call_count == 3  # noqa: S101
+
+    @patch("reflexio.client.client.requests.Session")
+    def test_delete_all_interactions_clears_all_cache(self, mock_session_class):
+        """Test that delete_all_interactions clears the entire cache."""
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+        mock_response = MagicMock()
+        mock_response.json.side_effect = [
+            # get_profiles
+            {"success": True, "user_profiles": [], "msg": None},
+            # get_agent_playbooks
+            {"success": True, "agent_playbooks": [], "msg": None},
+            # delete_all_interactions
+            {"success": True, "deleted_count": 10, "msg": "Deleted"},
+            # get_profiles again (cache miss)
+            {"success": True, "user_profiles": [], "msg": None},
+            # get_agent_playbooks again (cache miss)
+            {"success": True, "agent_playbooks": [], "msg": None},
+        ]
+        mock_session.request.return_value = mock_response
+
+        client = ReflexioClient(api_key="test_key")
+
+        # Populate both caches
+        client.get_profiles({"user_id": "u1", "start_time": None, "end_time": None, "top_k": 30})
+        client.get_agent_playbooks({"limit": 100})
+        assert mock_session.request.call_count == 2  # noqa: S101
+
+        # Nuclear delete — clears everything
+        client.delete_all_interactions()
+        assert mock_session.request.call_count == 3  # noqa: S101
+
+        # Both caches should miss
+        client.get_profiles({"user_id": "u1", "start_time": None, "end_time": None, "top_k": 30})
+        client.get_agent_playbooks({"limit": 100})
+        assert mock_session.request.call_count == 5  # noqa: S101
 
     @patch("reflexio.client.client.requests.Session")
     def test_cache_expiration_integration(self, mock_session_class):

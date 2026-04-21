@@ -22,7 +22,7 @@ import { setupWorkspaceResources } from "./hook/setup.ts";
 import { writeProfile } from "./lib/write-profile.ts";
 import { writePlaybook } from "./lib/write-playbook.ts";
 import { search } from "./lib/search.ts";
-import { reindexMemory, type InferFn } from "./lib/openclaw-cli.ts";
+import type { InferFn } from "./lib/openclaw-cli.ts";
 import { runConsolidation } from "./lib/consolidate.ts";
 import {
   prepareSimpleCompletionModelForAgent,

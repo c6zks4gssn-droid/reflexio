@@ -13,8 +13,20 @@ function resolveOpenclawHome(): string {
 }
 
 /**
- * Append HEARTBEAT.md content to the workspace. Idempotent — checks for
- * the marker heading before appending.
+ * Strip all existing reflexio heartbeat blocks from content.
+ * Splits by double-newline into paragraphs and drops any containing the tool name.
+ */
+function stripReflexioHeartbeatBlocks(content: string): string {
+  const paragraphs = content.split(/\n\n+/);
+  const cleaned = paragraphs.filter(
+    (p) => !p.includes("reflexio_consolidation_check") && !p.includes("Reflexio Consolidation Check")
+  );
+  return cleaned.join("\n\n").trim();
+}
+
+/**
+ * Append HEARTBEAT.md content to the workspace. Idempotent — strips all
+ * existing reflexio blocks first, then appends one canonical block.
  *
  * @param pluginDir - The plugin's install directory (import.meta.dirname)
  */
@@ -26,7 +38,6 @@ export function setupWorkspaceResources(pluginDir: string): void {
   if (!fs.existsSync(heartbeatSrc)) return;
 
   const heartbeatContent = fs.readFileSync(heartbeatSrc, "utf8");
-  const marker = "## Reflexio Consolidation Check";
 
   let existing = "";
   try {
@@ -35,9 +46,10 @@ export function setupWorkspaceResources(pluginDir: string): void {
     // file doesn't exist yet
   }
 
-  if (!existing.includes(marker)) {
-    const separator = existing.length > 0 ? "\n\n" : "";
-    fs.mkdirSync(workspace, { recursive: true });
-    fs.writeFileSync(heartbeatDest, existing + separator + heartbeatContent, "utf8");
-  }
+  // Always strip existing reflexio blocks (handles duplicates from prior installs),
+  // then append one canonical block
+  const cleaned = stripReflexioHeartbeatBlocks(existing);
+  const final = cleaned + (cleaned ? "\n\n" : "") + heartbeatContent;
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(heartbeatDest, final, "utf8");
 }

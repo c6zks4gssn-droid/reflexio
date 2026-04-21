@@ -826,12 +826,19 @@ def _install_claude_code_integration(
     rules_dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(rules_src, rules_dest)
 
-    # Expert mode: also install /reflexio-extract command
+    # Expert mode: also install /reflexio-extract command and skill references
     if expert:
         cmd_src = integration_dir / "commands" / "reflexio-extract" / "SKILL.md"
         cmd_dest = claude_dir / "commands" / "reflexio-extract" / "SKILL.md"
         cmd_dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cmd_src, cmd_dest)
+
+        refs_src = integration_dir / "skill" / "references"
+        if refs_src.exists():
+            refs_dest = claude_dir / "skills" / "reflexio" / "references"
+            if refs_dest.exists():
+                shutil.rmtree(refs_dest)
+            shutil.copytree(refs_src, refs_dest)
 
     # Configure hook
     handler_js = integration_dir / "hook" / "handler.js"

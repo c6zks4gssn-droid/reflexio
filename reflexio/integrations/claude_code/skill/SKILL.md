@@ -1,6 +1,6 @@
 ---
 name: reflexio
-description: "Search past session memory for user corrections, preferences, and project conventions. Retrieves behavioral rules the user has established (e.g. 'always use type hints', 'use pnpm not npm') so you follow them from the start. Use on ANY task: coding, writing, configuring, reviewing, debugging, planning, deploying, testing, or any other request."
+description: "Use when starting any task to check for past corrections and user preferences that should guide your approach."
 ---
 
 # Reflexio: Learn from Past Sessions

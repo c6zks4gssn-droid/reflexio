@@ -325,6 +325,24 @@ class TestInstallClaudeCodeIntegration:
         cmd = tmp_path / ".claude" / "commands" / "reflexio-extract" / "SKILL.md"
         assert not cmd.exists()
 
+    def test_expert_mode_installs_references(self, tmp_path: Path) -> None:
+        """Expert mode copies skill references directory."""
+        _install_claude_code_integration(
+            tmp_path, expert=True, location=InstallLocation.CURRENT_PROJECT
+        )
+        refs = tmp_path / ".claude" / "skills" / "reflexio" / "references"
+        assert refs.exists()
+        assert (refs / "proactive-patterns.md").exists()
+        assert (refs / "server-management.md").exists()
+
+    def test_normal_mode_no_references(self, tmp_path: Path) -> None:
+        """Normal mode does not install skill references."""
+        _install_claude_code_integration(
+            tmp_path, location=InstallLocation.CURRENT_PROJECT
+        )
+        refs = tmp_path / ".claude" / "skills" / "reflexio" / "references"
+        assert not refs.exists()
+
     def test_hooks_in_settings_json(self, tmp_path: Path) -> None:
         """Hooks are written to settings.json with correct events."""
         _install_claude_code_integration(

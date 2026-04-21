@@ -54,42 +54,6 @@ describe("writeProfile", () => {
     expect(content).not.toContain("supersedes");
   });
 
-  it("writes normally when neighbor is below threshold", async () => {
-    const runner = createMockRunner([
-      { path: ".reflexio/profiles/old.md", score: 0.3, snippet: "id: prof_old\n---\nOld fact", startLine: 1, endLine: 5, source: "memory" },
-    ]);
-    const inferFn = createMockInferFn(["diet query", null]);
-
-    const result = await writeProfile({
-      slug: "diet-vegan", ttl: "infinity",
-      body: "User is vegan.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner, inferFn,
-    });
-
-    expect(fs.existsSync(result)).toBe(true);
-    expect(fs.readFileSync(result, "utf8")).not.toContain("supersedes");
-  });
-
-  it("supersedes when neighbor above threshold and LLM says supersede", async () => {
-    const oldPath = path.join(workspace, ".reflexio", "profiles", "old.md");
-    fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nOld fact");
-
-    const runner = createMockRunner(
-      [{ path: oldPath, score: 0.5, snippet: "---\nid: prof_old\n---\nOld fact", startLine: 1, endLine: 5, source: "memory" }]
-    );
-    const inferFn = createMockInferFn(["diet vegan query", '{"decision": "supersede"}']);
-
-    const result = await writeProfile({
-      slug: "diet-vegan", ttl: "infinity",
-      body: "User is vegan.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
-      runner, inferFn,
-    });
-
-    expect(fs.existsSync(result)).toBe(true);
-    expect(fs.readFileSync(result, "utf8")).toContain("supersedes: [prof_old]");
-    expect(fs.existsSync(oldPath)).toBe(false);
-  });
-
   it("keeps both when LLM says keep_both", async () => {
     const oldPath = path.join(workspace, ".reflexio", "profiles", "old.md");
     fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nDifferent fact");
@@ -108,6 +72,54 @@ describe("writeProfile", () => {
     expect(fs.existsSync(result)).toBe(true);
     expect(fs.existsSync(oldPath)).toBe(true);
     expect(fs.readFileSync(result, "utf8")).not.toContain("supersedes");
+  });
+
+  it("merge_and_resolve: writes resolved body and deletes old file", async () => {
+    const oldPath = path.join(workspace, ".reflexio", "profiles", "old.md");
+    fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nUser likes Greek food.");
+
+    const runner = createMockRunner(
+      [{ path: oldPath, score: 0.5, snippet: "---\nid: prof_old\n---\nUser likes Greek food.", startLine: 1, endLine: 5, source: "memory" }]
+    );
+    const inferFn = createMockInferFn([
+      "food preference query",
+      '{"decision": "merge_and_resolve", "resolved": "User does not like Greek food."}',
+    ]);
+
+    const result = await writeProfile({
+      slug: "food-preference", ttl: "infinity",
+      body: "User does not like Greek food.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
+      runner, inferFn,
+    });
+
+    expect(fs.existsSync(result)).toBe(true);
+    const content = fs.readFileSync(result, "utf8");
+    expect(content).toContain("User does not like Greek food.");
+    expect(content).toContain("supersedes: [prof_old]");
+    expect(fs.existsSync(oldPath)).toBe(false);
+  });
+
+  it("merge_and_resolve: preserves non-contradicted facts in resolved body", async () => {
+    const oldPath = path.join(workspace, ".reflexio", "profiles", "old.md");
+    fs.writeFileSync(oldPath, "---\nid: prof_old\n---\nUser likes Chinese food. User likes Greek food.");
+
+    const runner = createMockRunner(
+      [{ path: oldPath, score: 0.5, snippet: "---\nid: prof_old\n---\nUser likes Chinese food. User likes Greek food.", startLine: 1, endLine: 5, source: "memory" }]
+    );
+    const inferFn = createMockInferFn([
+      "food preference query",
+      '{"decision": "merge_and_resolve", "resolved": "User does not like Chinese food. User likes Greek food."}',
+    ]);
+
+    const result = await writeProfile({
+      slug: "food-preference", ttl: "infinity",
+      body: "User does not like Chinese food.", workspace, config: { shallow_threshold: 0.4, top_k: 5 },
+      runner, inferFn,
+    });
+
+    const content = fs.readFileSync(result, "utf8");
+    expect(content).toContain("User does not like Chinese food. User likes Greek food.");
+    expect(fs.existsSync(oldPath)).toBe(false);
   });
 
   it("still writes when infer fails at preprocessing", async () => {

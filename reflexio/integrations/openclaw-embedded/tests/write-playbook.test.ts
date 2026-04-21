@@ -55,14 +55,17 @@ describe("writePlaybook", () => {
     expect(content).toContain("## When");
   });
 
-  it("supersedes when neighbor above threshold and LLM says supersede", async () => {
+  it("merge_and_resolve: writes resolved body and deletes old file", async () => {
     const oldPath = path.join(workspace, ".reflexio", "playbooks", "old.md");
     fs.writeFileSync(oldPath, "---\nid: pbk_old\n---\nOld playbook");
 
     const runner = createMockRunner(
       [{ path: oldPath, score: 0.5, snippet: "---\nid: pbk_old\n---\nOld playbook", startLine: 1, endLine: 5, source: "memory" }]
     );
-    const inferFn = createMockInferFn(["commit query", '{"decision": "supersede"}']);
+    const inferFn = createMockInferFn([
+      "commit query",
+      '{"decision": "merge_and_resolve", "resolved": "## When\\nCommit.\\n\\n## What\\nUpdated rule."}',
+    ]);
 
     const result = await writePlaybook({
       slug: "commit-no-trailers",

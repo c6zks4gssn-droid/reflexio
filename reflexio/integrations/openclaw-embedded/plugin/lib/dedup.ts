@@ -4,11 +4,19 @@ const PREPROCESS_PROMPT = `Rewrite the following text into a single descriptive 
 
 Text: "{rawText}"`;
 
-const CONTRADICTION_PROMPT = `EXISTING fact: "{existingContent}"
-NEW fact: "{newContent}"
+const DEDUP_PROMPT = `EXISTING: "{existingContent}"
+NEW: "{newContent}"
 
-Does the NEW fact replace or contradict the EXISTING fact (same topic, updated information)?
-Answer with ONLY a JSON object: {"decision": "supersede"} or {"decision": "keep_both"}`;
+Compare these two entries:
+- If they are about different topics with no overlap, answer "keep_both".
+- Otherwise, merge them: resolve contradictions (NEW wins over EXISTING), deduplicate redundant statements, preserve all non-contradicted facts from both. Return the merged result as 1-3 concise sentences.
+
+Answer with ONLY a JSON object:
+{"decision": "keep_both"} or {"decision": "merge_and_resolve", "resolved": "<merged, deduped, resolved body>"}`;
+
+export type DedupResult =
+  | { decision: "keep_both" }
+  | { decision: "merge_and_resolve"; resolved: string };
 
 /**
  * Rewrite raw text into a clean search query optimized for vector + FTS search.
@@ -27,35 +35,39 @@ export async function preprocessQuery(rawText: string, inferFn: InferFn): Promis
 }
 
 /**
- * Ask LLM whether newContent contradicts/replaces existingContent.
- * Returns "supersede" or "keep_both". Defaults to "keep_both" on any failure.
+ * Ask LLM to compare new content against existing content.
+ * Returns keep_both (different topics) or merge_and_resolve (with resolved body).
+ * Defaults to keep_both on any failure.
  */
-export async function judgeContradiction(
+export async function judgeDedup(
   newContent: string,
   existingContent: string,
   inferFn: InferFn
-): Promise<"supersede" | "keep_both"> {
-  console.info(`[reflexio] judgeContradiction: existingLen=${existingContent.length} newLen=${newContent.length}`);
-  console.info(`[reflexio] judgeContradiction: existing="${existingContent.slice(0, 100)}" new="${newContent.slice(0, 100)}"`);
-  const prompt = CONTRADICTION_PROMPT
+): Promise<DedupResult> {
+  console.info(`[reflexio] judgeDedup: existingLen=${existingContent.length} newLen=${newContent.length}`);
+  console.info(`[reflexio] judgeDedup: existing="${existingContent.slice(0, 100)}" new="${newContent.slice(0, 100)}"`);
+  const prompt = DEDUP_PROMPT
     .replace("{existingContent}", existingContent)
     .replace("{newContent}", newContent);
 
   const result = await inferFn(prompt);
   if (!result) {
-    console.info(`[reflexio] judgeContradiction: infer returned empty, defaulting to keep_both`);
-    return "keep_both";
+    console.info(`[reflexio] judgeDedup: infer returned empty, defaulting to keep_both`);
+    return { decision: "keep_both" };
   }
 
-  console.info(`[reflexio] judgeContradiction: raw result="${result.slice(0, 200)}"`);
+  console.info(`[reflexio] judgeDedup: raw result="${result.slice(0, 200)}"`);
   try {
     const parsed = JSON.parse(result);
-    const decision = parsed.decision === "supersede" ? "supersede" as const : "keep_both" as const;
-    console.info(`[reflexio] judgeContradiction: decision="${decision}"`);
-    return decision;
+    if (parsed.decision === "merge_and_resolve" && typeof parsed.resolved === "string" && parsed.resolved.trim()) {
+      console.info(`[reflexio] judgeDedup: decision="merge_and_resolve" resolvedLen=${parsed.resolved.length}`);
+      return { decision: "merge_and_resolve", resolved: parsed.resolved.trim() };
+    }
+    console.info(`[reflexio] judgeDedup: decision="keep_both"`);
+    return { decision: "keep_both" };
   } catch (err) {
-    console.error(`[reflexio] judgeContradiction: JSON parse failed: ${err}, defaulting to keep_both`);
-    return "keep_both";
+    console.error(`[reflexio] judgeDedup: JSON parse failed: ${err}, defaulting to keep_both`);
+    return { decision: "keep_both" };
   }
 }
 

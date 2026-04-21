@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { preprocessQuery, judgeContradiction, extractId } from "../plugin/lib/dedup.ts";
+import { preprocessQuery, judgeDedup, extractId } from "../plugin/lib/dedup.ts";
 import type { InferFn } from "../plugin/lib/openclaw-cli.ts";
 
 function createMockInferFn(result: string | null): InferFn {
@@ -36,35 +36,54 @@ describe("preprocessQuery", () => {
   });
 });
 
-describe("judgeContradiction", () => {
-  it("returns 'supersede' when LLM says supersede", async () => {
-    const inferFn = createMockInferFn('{"decision": "supersede"}');
-    const result = await judgeContradiction("User is vegan", "User is pescatarian", inferFn);
-    expect(result).toBe("supersede");
+describe("judgeDedup", () => {
+  it("returns merge_and_resolve when LLM merges", async () => {
+    const inferFn = createMockInferFn('{"decision": "merge_and_resolve", "resolved": "User does not like Greek food."}');
+    const result = await judgeDedup("User does not like Greek food.", "User likes Greek food.", inferFn);
+    expect(result).toEqual({ decision: "merge_and_resolve", resolved: "User does not like Greek food." });
   });
 
-  it("returns 'keep_both' when LLM says keep_both", async () => {
+  it("returns merge_and_resolve preserving non-contradicted facts", async () => {
+    const inferFn = createMockInferFn('{"decision": "merge_and_resolve", "resolved": "User does not like Chinese food. User likes Greek food."}');
+    const result = await judgeDedup(
+      "User does not like Chinese food.",
+      "User likes Chinese food. User likes Greek food.",
+      inferFn
+    );
+    expect(result).toEqual({
+      decision: "merge_and_resolve",
+      resolved: "User does not like Chinese food. User likes Greek food.",
+    });
+  });
+
+  it("returns keep_both for different topics", async () => {
     const inferFn = createMockInferFn('{"decision": "keep_both"}');
-    const result = await judgeContradiction("User likes dark mode", "User is a developer", inferFn);
-    expect(result).toBe("keep_both");
+    const result = await judgeDedup("User likes dark mode", "User is a developer", inferFn);
+    expect(result).toEqual({ decision: "keep_both" });
   });
 
-  it("defaults to 'keep_both' when infer fails", async () => {
+  it("defaults to keep_both when infer fails", async () => {
     const inferFn = createMockInferFn(null);
-    const result = await judgeContradiction("A", "B", inferFn);
-    expect(result).toBe("keep_both");
+    const result = await judgeDedup("A", "B", inferFn);
+    expect(result).toEqual({ decision: "keep_both" });
   });
 
-  it("defaults to 'keep_both' on malformed JSON", async () => {
+  it("defaults to keep_both on malformed JSON", async () => {
     const inferFn = createMockInferFn("I think they are related");
-    const result = await judgeContradiction("A", "B", inferFn);
-    expect(result).toBe("keep_both");
+    const result = await judgeDedup("A", "B", inferFn);
+    expect(result).toEqual({ decision: "keep_both" });
   });
 
-  it("defaults to 'keep_both' on unexpected decision value", async () => {
-    const inferFn = createMockInferFn('{"decision": "merge"}');
-    const result = await judgeContradiction("A", "B", inferFn);
-    expect(result).toBe("keep_both");
+  it("defaults to keep_both on merge_and_resolve with empty resolved", async () => {
+    const inferFn = createMockInferFn('{"decision": "merge_and_resolve", "resolved": ""}');
+    const result = await judgeDedup("A", "B", inferFn);
+    expect(result).toEqual({ decision: "keep_both" });
+  });
+
+  it("defaults to keep_both on unexpected decision value", async () => {
+    const inferFn = createMockInferFn('{"decision": "supersede"}');
+    const result = await judgeDedup("A", "B", inferFn);
+    expect(result).toEqual({ decision: "keep_both" });
   });
 });
 

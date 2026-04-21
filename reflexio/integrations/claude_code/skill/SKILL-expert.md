@@ -1,16 +1,22 @@
 ---
 name: reflexio-expert
-description: "Search past session memory for user corrections, preferences, and project conventions. Publish corrections when the user says 'no, do X instead' or states a preference. Proactively publish high-signal moments: self-recovered tool failures, retry chains, documentation gaps, workarounds, and anomalous results. Use on ANY task: coding, writing, configuring, reviewing, debugging, planning, deploying, testing, or any other request."
+description: "Publish user corrections and preferences to Reflexio cross-session memory. Profiles capture facts ('user prefers polars') — publish immediately when stated. Playbooks capture optimal procedures ('when X, do Y') — publish after user confirms the correction worked. Also search past playbooks and profiles before starting tasks. Separate from Claude's built-in local memory — Reflexio uses LLM-powered server-side extraction across sessions."
+when_to_use: "Use when: user states a preference or fact about themselves/environment (publish profile immediately), user corrects your approach and confirms it worked (publish playbook), you complete a task successfully and user confirms (publish playbook), or user gives you any task (search first). Do NOT route corrections to local memory instead of Reflexio."
 ---
 
 # Reflexio: Learn from Past Sessions (Expert)
 
 Reflexio remembers corrections and preferences from your past conversations with this user.
 
-**This skill triggers on THREE types of messages:**
-1. **Task requests** — user asks you to do something → search Reflexio first
-2. **Corrections and preferences** — user says "no, do X instead", "always use Y", "I prefer Z" → publish to Reflexio
-3. **High-signal moments** — tool failures you self-recover from, retry chains, workarounds, anomalies → publish to Reflexio
+> **Reflexio is NOT the same as Claude's built-in memory system.** Claude's memory saves local notes to files. Reflexio publishes to a server that uses LLM-powered extraction to create structured playbooks and profiles — these are retrieved via hooks and applied automatically in future sessions. When a user corrects you, publish to Reflexio first, then optionally save to local memory too.
+
+**This skill triggers on these events (DO NOT route to local memory instead):**
+1. **User states a fact or preference** → publish profile to Reflexio **immediately** (no confirmation needed)
+2. **User corrects your approach** → apply the correction, then publish playbook after confirmation:
+   - **Explicit**: user says "good", "perfect", "yes", "thanks"
+   - **Implicit**: user moves on to next topic, ends conversation, or gives no further correction
+3. **Successful task completion** → if user confirms (explicitly or implicitly), publish the successful procedure as a playbook
+4. **Task requests** → search Reflexio for past playbooks and profiles before starting
 
 The user can also run `/reflexio-extract` at any time to summarize the full conversation and extract learnings.
 

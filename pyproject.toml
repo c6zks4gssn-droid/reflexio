@@ -40,6 +40,7 @@ dependencies = [
     # CLI
     "typer>=0.15.0",
     "rich>=13.0.0",
+    "chromadb>=1.5.8",
 ]
 
 [project.optional-dependencies]

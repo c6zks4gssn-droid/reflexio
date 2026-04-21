@@ -1,7 +1,7 @@
 ---
 name: reflexio-expert
-description: "Publish user corrections and preferences to Reflexio cross-session memory. Profiles capture facts ('user prefers polars') — publish immediately when stated. Playbooks capture optimal procedures ('when X, do Y') — publish after user confirms the correction worked. Also search past playbooks and profiles before starting tasks. Separate from Claude's built-in local memory — Reflexio uses LLM-powered server-side extraction across sessions."
-when_to_use: "Use when: user states a preference or fact about themselves/environment (publish profile immediately), user corrects your approach and confirms it worked (publish playbook), you complete a task successfully and user confirms (publish playbook), or user gives you any task (search first). Do NOT route corrections to local memory instead of Reflexio."
+description: "Publish user corrections and preferences to Reflexio cross-session memory. Profiles capture facts ('user prefers polars') — publish immediately when stated. Playbooks capture optimal procedures ('when X, do Y') — publish after user confirms the correction worked. Separate from Claude's built-in local memory — Reflexio uses LLM-powered server-side extraction across sessions."
+when_to_use: "Use when: user states a preference or fact about themselves/environment (publish profile immediately), user corrects your approach and confirms it worked (publish playbook), or you complete a task successfully and user confirms (publish playbook). Do NOT route corrections to local memory instead of Reflexio."
 ---
 
 # Reflexio: Learn from Past Sessions (Expert)
@@ -16,7 +16,6 @@ Reflexio remembers corrections and preferences from your past conversations with
    - **Explicit**: user says "good", "perfect", "yes", "thanks"
    - **Implicit**: user moves on to next topic, ends conversation, or gives no further correction
 3. **Successful task completion** → if user confirms (explicitly or implicitly), publish the successful procedure as a playbook
-4. **Task requests** → search Reflexio for past playbooks and profiles before starting
 
 The user can also run `/reflexio-extract` at any time to summarize the full conversation and extract learnings.
 

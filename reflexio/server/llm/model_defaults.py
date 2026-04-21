@@ -383,7 +383,13 @@ def validate_llm_availability(
         )
 
     logger.info("Auto-detected LLM providers (priority order): %s", providers)
-    logger.info("Primary provider for generation: %s", providers[0])
+    generation_provider = next(
+        (p for p in providers if _PROVIDER_DEFAULTS[p].generation), None
+    )
+    if generation_provider:
+        logger.info("Primary provider for generation: %s", generation_provider)
+    else:
+        logger.info("No generation-capable provider available")
 
     # Validate embedding availability
     embedding_provider = next(

@@ -1009,7 +1009,8 @@ def claude_code_setup(
     # Step 3.5: Seed user_id for Claude Code (only if not already set)
     if not os.environ.get("REFLEXIO_USER_ID"):
         env_content = env_path.read_text() if env_path.exists() else ""
-        if not re.search(r'^REFLEXIO_USER_ID\s*=\s*".+"', env_content, re.MULTILINE):
+        # Match any assignment format: quoted, unquoted, with optional whitespace
+        if not re.search(r"^\s*REFLEXIO_USER_ID\s*=", env_content, re.MULTILINE):
             _set_env_var(env_path, "REFLEXIO_USER_ID", "claude-code")
 
     # Step 4: Install skill + hook
@@ -1036,7 +1037,12 @@ def claude_code_setup(
         typer.echo(f"  Embedding Provider: {embedding_label}")
     typer.echo(f"  Storage: {storage_label}")
     typer.echo(f"  Skill ({skill_type}): {skill_path}")
-    typer.echo("  Hooks: SessionStart + UserPromptSubmit")
+    hooks_summary = (
+        "SessionStart + UserPromptSubmit + Stop"
+        if expert
+        else "SessionStart + UserPromptSubmit"
+    )
+    typer.echo(f"  Hooks: {hooks_summary}")
     if location == InstallLocation.ALL_PROJECTS:
         typer.echo("")
         typer.echo("Note: User-level hooks fire for ALL Claude Code sessions.")

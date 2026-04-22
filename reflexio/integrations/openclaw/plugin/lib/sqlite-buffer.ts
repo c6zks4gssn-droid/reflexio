@@ -30,8 +30,12 @@ export function smartTruncate(
   const tailLen = budget - headLen;
   const truncated = content.length - headLen - tailLen;
   const marker = `\n\n[...truncated ${truncated} chars...]\n\n`;
-  if (tailLen <= 0) return content.slice(0, headLen) + marker;
-  return content.slice(0, headLen) + marker + content.slice(-tailLen);
+  const result =
+    tailLen <= 0
+      ? content.slice(0, headLen) + marker
+      : content.slice(0, headLen) + marker + content.slice(-tailLen);
+  // Final safety clamp for edge cases (very large truncated counts exceeding reserved marker width)
+  return result.length <= maxLength ? result : result.slice(0, maxLength);
 }
 
 /** Open (or create) the SQLite database and ensure schema exists. */

@@ -19,7 +19,9 @@ export function formatSearchContext(raw: string): string | null {
 
 /**
  * Run `reflexio search` and return formatted context string.
- * Returns null if no results or on failure.
+ * Returns null if no results.
+ * Throws an Error (with stderr as message) on non-zero exit code so callers can
+ * distinguish connection/binary errors from empty-results.
  */
 export async function runSearch(
   prompt: string,
@@ -28,15 +30,14 @@ export async function runSearch(
   timeoutMs: number,
   runner: CommandRunner,
 ): Promise<string | null> {
-  try {
-    const result = await runner(
-      ["reflexio", "search", prompt.slice(0, 4096), "--user-id", userId, "--top-k", String(topK)],
-      { timeoutMs },
-    );
-    return formatSearchContext(result.stdout);
-  } catch {
-    return null;
+  const result = await runner(
+    ["reflexio", "search", prompt.slice(0, 4096), "--user-id", userId, "--top-k", String(topK)],
+    { timeoutMs },
+  );
+  if (result.code !== 0) {
+    throw new Error(result.stderr || `reflexio search exited with code ${result.code}`);
   }
+  return formatSearchContext(result.stdout);
 }
 
 /**

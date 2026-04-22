@@ -35,4 +35,8 @@ describe("isLocalServer", () => {
   it("returns false for remote URL", () => {
     expect(isLocalServer("https://reflexio.ai:8081")).toBe(false);
   });
+
+  it("returns false for localhost.evil.com", () => {
+    expect(isLocalServer("https://localhost.evil.com")).toBe(false);
+  });
 });

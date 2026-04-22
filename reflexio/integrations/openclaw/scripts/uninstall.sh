@@ -30,6 +30,6 @@ else
 fi
 
 info "Restarting openclaw gateway..."
-openclaw gateway restart
+openclaw gateway restart || echo "warning: gateway restart failed — you may need to restart manually"
 
 info "Uninstall complete."

@@ -29,7 +29,7 @@ info "Verification:"
 if openclaw plugins inspect reflexio-federated 2>/dev/null | grep -q "Status: loaded"; then
   info "  ✓ plugin registered and loaded"
 else
-  echo "  warning: plugin did not reach 'loaded' status; run 'openclaw plugins inspect reflexio-federated' to debug"
+  die "Plugin did not reach 'loaded' status. Run 'openclaw plugins inspect reflexio-federated' to debug."
 fi
 
 info "Installation complete."

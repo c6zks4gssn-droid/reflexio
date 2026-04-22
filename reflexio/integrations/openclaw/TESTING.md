@@ -93,7 +93,7 @@ openclaw chat
 
 Send a simple, self-contained task that doesn't require a project:
 
-```
+```text
 Write a Python function that takes a list of numbers and returns the mean and median.
 ```
 
@@ -122,7 +122,7 @@ The plugin starts the server in the background during `agent:bootstrap` if neede
 
 In the same session:
 
-```
+```text
 Now write a version that also returns the standard deviation.
 ```
 
@@ -146,21 +146,21 @@ This phase creates a correction scenario and verifies the system captures it.
 In the same session (or a new one via `openclaw chat`), send these messages in order. The goal is to get the agent to do something one way, then correct it:
 
 **Message 1** — give a task with an implicit choice:
-```
+```text
 Write a shell script that installs project dependencies and starts the dev server.
 ```
 
 Wait for the agent to respond. It will likely use `npm install` or a similar default.
 
 **Message 2** — correct the agent's choice:
-```
+```text
 No, don't use npm. In this project we always use pnpm. Please rewrite using pnpm instead.
 ```
 
 Wait for the agent to apply the correction.
 
 **Message 3** — continue the task to provide more context:
-```
+```text
 Also add a health check that curls localhost:3000/health before starting the main process.
 ```
 
@@ -172,7 +172,7 @@ Also add a health check that curls localhost:3000/health before starting the mai
 ### 3.2 End the session
 
 Exit the session:
-```
+```text
 /stop
 ```
 (or press Ctrl+C, depending on your OpenClaw configuration)
@@ -220,7 +220,7 @@ openclaw chat
 
 Send a task related to the correction from Phase 3:
 
-```
+```text
 Add the 'lodash' package to this project's dependencies.
 ```
 
@@ -233,7 +233,7 @@ Add the 'lodash' package to this project's dependencies.
 
 In the same session:
 
-```
+```text
 Explain how Python's garbage collector works.
 ```
 
@@ -254,11 +254,11 @@ openclaw chat
 ```
 
 Send a few messages:
-```
+```text
 Write a function to validate email addresses using regex.
 ```
 Then after the response:
-```
+```text
 That regex is too permissive. Use a stricter pattern that requires a TLD of at least 2 characters.
 ```
 
@@ -266,7 +266,7 @@ Now use the `reflexio_publish` tool to flush immediately:
 
 Ask the agent to use the `reflexio_publish` tool to publish the conversation:
 
-```
+```text
 Please publish our conversation using the reflexio_publish tool so I can test the publish mechanism.
 ```
 
@@ -328,11 +328,11 @@ openclaw chat
 ```
 
 Have this conversation:
-```
+```text
 Write a function to format a date as a string.
 ```
 Then:
-```
+```text
 Always use ISO 8601 format (YYYY-MM-DD) for dates, never locale-specific formats.
 ```
 Exit: `/stop`
@@ -343,11 +343,11 @@ openclaw chat --agent test-reviewer
 ```
 
 Have this conversation:
-```
+```text
 Write a function to log errors.
 ```
 Then:
-```
+```text
 Always include the stack trace when logging errors, not just the message.
 ```
 Exit: `/stop`
@@ -411,7 +411,7 @@ openclaw chat
 ```
 
 Send a task:
-```
+```text
 Explain the difference between TCP and UDP.
 ```
 
@@ -432,7 +432,7 @@ reflexio status check
 ```
 
 Send a second message in the same session:
-```
+```text
 Now explain when you'd use one over the other.
 ```
 

@@ -36,7 +36,12 @@ export function resolveServerUrl(): string {
 
 /** Check if a URL points to a local server. */
 export function isLocalServer(url: string): boolean {
-  return url.includes("127.0.0.1") || url.includes("localhost");
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
+  } catch {
+    return url.includes("127.0.0.1") || url.includes("localhost");
+  }
 }
 
 /**

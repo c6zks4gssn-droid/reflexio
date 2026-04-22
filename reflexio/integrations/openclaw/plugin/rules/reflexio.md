@@ -10,7 +10,7 @@ A `before_prompt_build` hook automatically runs `reflexio search` on every messa
 
 1. **When you see injected Reflexio context** — read it carefully and follow every instruction. Behavior Corrections tell you what to do differently. User Preferences tell you how the user works. Agent Playbooks are shared corrections from all instances.
 
-2. **If no Reflexio context appears for a task** — run a manual search:
+2. **If no Reflexio context appears for a substantive task request** — run a manual search. Skip this for short or trivial messages (greetings, one-word replies, yes/no responses):
    ```
    reflexio search "<the user's task or request>"
    ```

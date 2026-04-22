@@ -1,60 +1,63 @@
 ---
-name: reflexio-federated-hook
+name: reflexio-federated-plugin
 description: "Automatically capture conversations and inject cross-session context before every response"
 metadata:
   openclaw:
     emoji: "🧠"
-    events: ["agent:bootstrap", "message:received", "message:sent", "command:stop"]
+    hooks: ["before_prompt_build", "message_sent", "before_compaction", "before_reset", "session_end"]
     requires:
       bins: ["reflexio"]
-      env: []
+      env: ["REFLEXIO_USER_ID", "REFLEXIO_AGENT_VERSION"]
 ---
 
-# Reflexio Federated Hook
+# Reflexio Federated Plugin
 
-The hook is the core component that enables automatic conversation capture and context injection. It runs on every agent session and persists data to a local SQLite buffer.
+The plugin is the core component that enables automatic conversation capture and cross-session context injection. It is implemented against the **Openclaw Plugin SDK** (`openclaw/plugin-sdk`) and runs on every agent session, persisting data to a local SQLite buffer.
 
-## What the Hook Does
+## Plugin SDK Hooks
 
-The hook is pure TypeScript + native Node.js HTTP. It does not spawn subprocesses or invoke the `reflexio` CLI directly from the hook code — all traffic is HTTP to the local Reflexio server at `http://127.0.0.1:8081`.
+The plugin registers the following hooks via `api.on(...)` in the Plugin SDK:
 
-### On `agent:bootstrap` (session start)
+### `before_prompt_build` (before each response)
 
-- Checks if the Reflexio server is running via health check to `http://127.0.0.1:8081/health`
-- If server is not running and hasn't been started recently, spawns `reflexio services start --only backend` in the background
-- Retries any unpublished conversations from previous sessions where the server was unavailable
-- Optional: fetches user profile summary via search to inject as bootstrap context (if available)
+Fires before the agent builds its next response. This is the primary hook — it handles:
 
-### On `message:received` (before each response)
+1. **First-use setup check** — detects whether the `reflexio` CLI is installed and configured. If setup is needed, injects a setup instruction into the system context.
+2. **Server auto-start** — checks if the local Reflexio server is healthy via a health check; if not, spawns `reflexio services start --only backend` in the background.
+3. **Retry unpublished turns** — publishes any buffered turns from previous sessions that failed to reach the server.
+4. **Search injection** — runs `reflexio search` on the user's message and, if results are found, prepends them as system context before the agent responds. Skips search for trivial/short inputs to reduce noise. Times out after `search.timeout_ms` (default: 5 000 ms) — never blocks the response.
 
-- Executes semantic search on the user message against stored playbooks and profiles
-- If results are found, formats them as markdown and injects as context
-- Skips search for trivial inputs (< 5 chars, or yes/no/ok/sure/thanks) to reduce noise
-- Times out after `search.timeout_ms` (default: 5000) — never blocks the response
-- If search fails or times out, the agent proceeds without injected context (graceful degradation)
+### `message_sent` (each turn)
 
-### On `message:sent` (each turn)
+Fires after the agent sends a response. Buffers the (user message, agent response) pair into local SQLite at `~/.reflexio/sessions.db`. Lightweight local write — no network calls. If the buffer exceeds `publish.batch_size * 2` unpublished turns, triggers an incremental publish to the server.
 
-- Buffers the (user message, agent response) pair into local SQLite (`~/.reflexio/sessions.db`)
-- Lightweight local write — no network calls
-- If buffer exceeds `publish.batch_size` unpublished turns, triggers an incremental publish
-- Ensures buffered data persists across sessions even if the server is down
+### `before_compaction` (before transcript compaction)
 
-### On `command:stop` (session end)
+Fires before Openclaw compacts the transcript. Flushes all unpublished buffered turns to the Reflexio server so no data is lost when the compaction discards history.
 
-- Flushes all remaining buffered conversations to the Reflexio server via `reflexio publish`
-- Blocks briefly on the HTTP round-trip; if it fails, turns stay buffered and are retried on next `agent:bootstrap`
-- After successful publish, triggers background aggregation of playbooks across all agents
+### `before_reset` (before transcript wipe)
+
+Fires before Openclaw wipes the transcript (e.g., `/reset`). Same as `before_compaction` — flushes all remaining unpublished turns.
+
+### `session_end` (session end)
+
+Fires when the session ends. Performs a final flush of all remaining buffered turns to the Reflexio server.
+
+## Tool: `reflexio_publish`
+
+In addition to hooks, the plugin registers one agent-invocable tool:
+
+- **`reflexio_publish`** — immediately flushes all buffered conversation turns to the Reflexio server. Useful after user corrections or high-signal moments when automatic session-end flushing would be too late.
+
+> **Single-session limitation:** The `execute` callback in the Plugin SDK does not receive session context, so this tool always targets the most recently active session. Concurrent multi-session use is not supported.
 
 ## Prerequisites
 
-1. **`reflexio` CLI on PATH** — `pipx install reflexio-ai` or `pip install --user reflexio-ai`. The hook spawns this CLI to start the backend server and publish conversations.
+1. **`reflexio` CLI on PATH** — `pipx install reflexio-ai` or `pip install --user reflexio-ai`. The plugin shells out to this CLI to start the backend server and publish conversations.
 
-2. **Node.js 18+** — Required to run the plugin and hook.
+2. **Node.js 18+** — Required to run the plugin.
 
-3. **An LLM provider API key in `~/.reflexio/.env`** — **Required for the backend server to work end-to-end, even though the hook itself never reads it.** The local Reflexio server uses this key to extract playbooks and profiles via LiteLLM. The first-use setup wizard will prompt you to select a provider (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, MiniMax, DashScope, xAI, Moonshot, ZAI, or local LLM via custom endpoint) and write the key for you.
-
-The plugin manifest does not declare this LLM key under `requires.env` because that field describes variables the hook itself reads, and the hook is deliberately stateless (no env var access, no filesystem config reads — enforced in code). The dependency lives one hop away at the backend server.
+3. **An LLM provider API key in `~/.reflexio/.env`** — Required for the backend server to extract playbooks and profiles. The first-use setup wizard prompts you to configure this on the first agent session.
 
 ## Configuration
 
@@ -89,99 +92,73 @@ All settings are optional and defined in `plugin/openclaw.plugin.json` under the
 }
 ```
 
-All defaults are reasonable for local operation. To customize, edit `plugin/openclaw.plugin.json` and restart the agent.
+## Security and Privacy
 
-## Safety and Privacy
+### What the plugin reads
 
-### Security contract — hook side
+- **Environment variables**: `REFLEXIO_USER_ID` (overrides auto-derived user ID) and `REFLEXIO_AGENT_VERSION` (overrides agent version label). Both are optional.
+- **`~/.openclaw/openclaw.json`**: read by the Openclaw host process to load the plugin; the plugin itself does not read this file directly.
+- **`~/.reflexio/.env`**: read to resolve `REFLEXIO_URL` if the env var is not set in the process environment.
 
-The hook is **hard-pinned to `http://127.0.0.1:8081`**. The destination is a hardcoded constant in `hook/handler.ts`; changing it requires editing the source. The hook:
+### What the plugin shells out to
 
-- Reads **no environment variables**
-- Reads **no configuration files**
-- Has **no code path** that reaches any external host
-- Derives user identity from OpenClaw's session key (e.g., `agent:main:...` → `user_id: "main"`), with fallback to `openclaw`
+The plugin spawns the `reflexio` CLI for:
+- `reflexio services start --only backend` — starts the local server if not running
+- `reflexio search <query>` — fetches context from the local server
+- `reflexio interactions publish --file <payload.json>` — publishes buffered turns
 
-All settings are hardcoded at module scope:
-- Server URL: `http://127.0.0.1:8081` (loopback, not configurable)
-- Agent label: `openclaw-agent` (not configurable)
-- User ID: auto-derived from session key prefix
+All spawned processes use the binary on your `PATH`. If `reflexio` is not found, the `error` event on the child process is caught, the affected turns are marked for retry, and the plugin continues working without blocking the agent.
 
-If you need remote Reflexio from OpenClaw, run a local proxy at `127.0.0.1:8081` or use the Claude Code integration, which supports full configuration overrides.
+### Network destinations
 
-### Privacy: what the hook guarantees, what it doesn't
+The plugin communicates only with the Reflexio server at the URL resolved from `REFLEXIO_URL` / `~/.reflexio/.env` / default `http://127.0.0.1:8081`. Local-server detection uses exact hostname matching (`127.0.0.1` or `localhost`); only local servers are auto-started.
 
-The hook itself communicates only with `http://127.0.0.1:8081`. It reads no environment variables, no configuration files, and has no code path that reaches any other host.
-
-**The local Reflexio server, however, makes outbound LLM API calls** for profile/playbook extraction. The destination is whatever you configured in `~/.reflexio/.env` (OpenAI, Anthropic, Gemini, etc.). If that provider is external, excerpts of your conversations will be sent to it.
-
-**If you want a fully offline setup, configure the server to use a local LLM:**
-- Ollama (free, runs locally)
-- LM Studio (free, runs locally)
-- vLLM (free, runs locally)
-
-Provide the local endpoint (e.g., `http://127.0.0.1:11434`) as your LLM provider during first-use setup.
+**The local Reflexio server makes outbound LLM API calls** for profile/playbook extraction. The destination depends on your `~/.reflexio/.env` configuration (OpenAI, Anthropic, Gemini, or a local LLM). For a fully offline setup, configure a local LLM provider (Ollama, LM Studio, vLLM) during first-use setup.
 
 ## Buffering and Retry
 
-The hook uses SQLite to buffer conversations locally:
+The plugin uses SQLite to buffer conversations locally:
 
 - **Location**: `~/.reflexio/sessions.db`
 - **Retention**: Buffered turns are kept until successfully published to the server
-- **Retry logic**: On every `agent:bootstrap`, the hook retries any unpublished sessions
+- **Retry logic**: On every `before_prompt_build`, the plugin retries any unpublished sessions from previous runs (up to `max_retries`)
 - **Graceful degradation**: If the server is down, the agent works normally and buffers persist
 
-This ensures no data loss even if the server is temporarily unavailable.
+## Lifecycle Summary
 
-## Timing and Timeouts
+| Hook | Trigger | Actions |
+|------|---------|---------|
+| `before_prompt_build` | Before each agent response | Setup check, server auto-start, retry old sessions, search injection |
+| `message_sent` | After each agent response | Buffer turn to SQLite, incremental publish if batch threshold exceeded |
+| `before_compaction` | Before transcript compaction | Flush all unpublished turns |
+| `before_reset` | Before transcript wipe | Flush all unpublished turns |
+| `session_end` | Session ends | Final flush of all remaining turns |
 
-The hook respects strict timing bounds to never degrade agent performance:
+## Implementation
 
-- **Search timeout**: 5 seconds (configurable via `search.timeout_ms`)
-  - If the server is slow, search times out and the agent proceeds without context
-  - No context is better than a slow response
-  
-- **Health check timeout**: 3 seconds (configurable via `server.health_check_timeout_ms`)
-  - If the server doesn't respond, assume it's down and attempt restart
-  
-- **Server startup**: Runs in background, doesn't block agent bootstrap
-  - Hook checks for a stale startup flag (older than 2 minutes) and retries if needed
+The plugin is implemented in TypeScript in `plugin/`:
 
-## Lifecycle Events
-
-| Event | Trigger | Typical Action |
-|-------|---------|---|
-| `agent:bootstrap` | Agent session starts | Start server if needed, retry unpublished turns, inject user profile |
-| `message:received` | User sends a message | Inject playbooks/profiles from search |
-| `message:sent` | Agent responds | Buffer turn, maybe publish if batch size exceeded |
-| `command:stop` | User ends session | Flush all buffered turns to server |
-
-## Debugging
-
-To see hook logs during development:
-
-```bash
-# Run agent with stderr visible
-openclaw chat 2>&1 | grep "\[reflexio\]"
-
-# Or redirect to a file and tail
-openclaw chat 2>hook.log &
-tail -f hook.log
-```
-
-All hook log lines are prefixed with `[reflexio]` for easy filtering.
-
-## Implementation Details
-
-The hook is implemented in TypeScript in `plugin/hook/`:
-
-- **`handler.ts`** — Event handlers for all four lifecycle events
-- **`setup.ts`** — First-use setup: CLI detection, LLM provider prompt, server start
+- **`index.ts`** — SDK wiring: `definePluginEntry`, hook registration, tool registration
+- **`hook/handler.ts`** — Core logic: `handleBeforePromptBuild`, `handleMessageSent`, `handleSessionFlush`, `handleToolPublish`
+- **`hook/setup.ts`** — First-use setup: CLI detection, LLM provider prompt, server start
 
 Supporting libraries in `plugin/lib/`:
 
-- **`server.ts`** — Server health check, startup logic
-- **`user-id.ts`** — User identity resolution from session key
-- **`sqlite-buffer.ts`** — Turn buffering and retry management
-- **`publish.ts`** — Publish command construction and CLI spawn
-- **`search.ts`** — Search API call and result formatting
+- **`server.ts`** — URL resolution, health check, auto-start
+- **`user-id.ts`** — User identity and agent version resolution from env vars / session key
+- **`sqlite-buffer.ts`** — Turn buffering, retry management
+- **`publish.ts`** — Payload construction, CLI spawn with error handling
+- **`search.ts`** — Search invocation, result formatting, trivial-input filtering
+
+## Debugging
+
+All plugin log lines are prefixed with `[reflexio]` for easy filtering:
+
+```bash
+# Option A: capture stderr to file and tail it
+openclaw chat 2>reflexio-plugin.log
+tail -f reflexio-plugin.log | grep "\[reflexio\]"
+
+# Option B: watch inline
+openclaw chat 2>&1 | grep "\[reflexio\]"
+```

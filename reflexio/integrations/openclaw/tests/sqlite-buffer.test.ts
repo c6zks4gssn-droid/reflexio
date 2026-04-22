@@ -26,7 +26,7 @@ describe("smartTruncate", () => {
     expect(result).toContain("[...truncated");
   });
 
-  it("returns empty string for null/undefined", () => {
+  it("returns empty string for empty input", () => {
     expect(smartTruncate("", 100)).toBe("");
   });
 });

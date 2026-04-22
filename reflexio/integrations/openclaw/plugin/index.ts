@@ -21,6 +21,13 @@ import {
 } from "./hook/handler.ts";
 
 // Track the most recently active session key, updated by before_prompt_build and message_sent.
+//
+// LIMITATION: This is a process-global variable. The Openclaw Plugin SDK does not pass session
+// context into the tool `execute` callback, so `reflexio_publish` can only target the most
+// recently active session. If multiple sessions run concurrently in the same process, this value
+// will reflect whichever session fired last — meaning `reflexio_publish` may flush the wrong
+// session's turns. This plugin is designed for single-session use. Concurrent multi-session
+// support would require the Plugin SDK to expose session context in the tool execute callback.
 let _activeSessionKey = "";
 
 export default definePluginEntry({

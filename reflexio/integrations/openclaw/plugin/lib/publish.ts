@@ -74,6 +74,18 @@ export function publishSession(
     { stdio: ["ignore", "ignore", "ignore"], detached: true },
   );
 
+  child.on("error", (err) => {
+    log?.error?.(`[reflexio] Failed to spawn reflexio binary: ${err.message}`);
+    try {
+      markFailed(db, sessionId);
+    } catch (dbErr) {
+      log?.error?.(`[reflexio] Failed to update retry count after spawn error: ${dbErr}`);
+    }
+    try {
+      fs.unlinkSync(payloadFile);
+    } catch {}
+  });
+
   child.on("close", (code) => {
     if (code === 0) {
       try {

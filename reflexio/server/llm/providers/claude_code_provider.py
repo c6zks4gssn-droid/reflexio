@@ -44,7 +44,9 @@ PROVIDER_KEY = "claude-code"
 ENV_ENABLE = "CLAUDE_SMART_USE_LOCAL_CLI"
 _ENV_CLI_PATH = "CLAUDE_SMART_CLI_PATH"
 _ENV_TIMEOUT = "CLAUDE_SMART_CLI_TIMEOUT"
+_ENV_MODEL = "CLAUDE_SMART_CLI_MODEL"
 _DEFAULT_TIMEOUT_SECONDS = 120
+_DEFAULT_CLI_MODEL = "claude-sonnet-4-6"
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes"}
 _UNSUPPORTED_PARAMS_WARNED: set[str] = set()
@@ -304,7 +306,8 @@ def _run_cli(
     Raises:
         ClaudeCodeCLIError: On non-zero exit, timeout, or malformed JSON.
     """
-    cmd = [cli_path, "-p", "--output-format", "json"]
+    model = os.environ.get(_ENV_MODEL) or _DEFAULT_CLI_MODEL
+    cmd = [cli_path, "-p", "--output-format", "json", "--model", model]
     if system_prompt:
         cmd.extend(["--append-system-prompt", system_prompt])
 

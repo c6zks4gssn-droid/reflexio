@@ -160,8 +160,9 @@ export function handleMessageSent(
 
   try {
     const db = getDb();
-    if (userMessage) insertTurn(db, sessionKey, "user", userMessage);
-    if (agentResponse) insertTurn(db, sessionKey, "assistant", agentResponse);
+    const maxLen = config.publish.max_content_length;
+    if (userMessage) insertTurn(db, sessionKey, "user", userMessage, maxLen);
+    if (agentResponse) insertTurn(db, sessionKey, "assistant", agentResponse, maxLen);
 
     // Incremental publish at batch threshold
     const count = countUnpublished(db, sessionKey);

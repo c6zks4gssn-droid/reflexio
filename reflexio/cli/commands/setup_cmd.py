@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -412,17 +414,18 @@ def _install_openclaw_integration() -> bool:
         typer.echo(f"Error: openclaw command failed: {exc.stderr or exc.stdout}")
         raise typer.Exit(1) from exc
 
-    # Verify
+    # Verify — match exact "Status: loaded" to avoid false positives from
+    # "not loaded" or "unloaded"
     result = subprocess.run(
         ["openclaw", "plugins", "inspect", "reflexio-federated"],
         capture_output=True,
         text=True,
     )
-    if "loaded" in result.stdout.lower():
+    if re.search(r"Status:\s*loaded\b", result.stdout):
         typer.echo("Plugin installed and registered")
         return True
 
-    typer.echo("Warning: Plugin may not be registered -- check 'openclaw plugins inspect reflexio-federated'")
+    typer.echo("Error: Plugin not loaded -- check 'openclaw plugins inspect reflexio-federated'")
     return False
 
 
@@ -995,8 +998,11 @@ def claude_code_setup(
         display_name, model, provider_key = _prompt_llm_provider(env_path)
         embedding_label = _prompt_embedding_provider(env_path, provider_key)
 
-    # Step 3.5: Configure user_id for Claude Code
-    _set_env_var(env_path, "REFLEXIO_USER_ID", "claude-code")
+    # Step 3.5: Seed user_id for Claude Code (only if not already set)
+    if not os.environ.get("REFLEXIO_USER_ID"):
+        env_content = env_path.read_text() if env_path.exists() else ""
+        if not re.search(r'^REFLEXIO_USER_ID\s*=\s*".+"', env_content, re.MULTILINE):
+            _set_env_var(env_path, "REFLEXIO_USER_ID", "claude-code")
 
     # Step 4: Install skill + hook
     typer.echo("")

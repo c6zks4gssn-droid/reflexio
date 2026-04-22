@@ -61,8 +61,9 @@ export function insertTurn(
   sessionId: string,
   role: string,
   content: string,
+  maxContentLength: number = MAX_CONTENT_LENGTH,
 ): void {
-  const truncated = smartTruncate(content);
+  const truncated = smartTruncate(content, maxContentLength);
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO turns (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",

@@ -1,7 +1,7 @@
 {
-  "name": "@reflexio/openclaw-embedded",
+  "name": "@reflexioai/reflexio",
   "version": "0.1.0",
-  "description": "Reflexio-style user profile and playbook extraction using Openclaw's native memory engine, hooks, and sub-agents.",
+  "description": "A lightweight Openclaw plugin that delivers agent self-improving capabilities",
   "private": true,
   "type": "module",
   "openclaw": {

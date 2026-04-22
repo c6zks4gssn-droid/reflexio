@@ -378,15 +378,17 @@ def _install_openclaw_integration() -> bool:
         typer.echo(f"Error: plugin directory not found at {plugin_dir}")
         raise typer.Exit(1)
 
-    # Clean install: remove any existing installation first
+    # Clean install: remove any existing installation and stale extension dir
     subprocess.run(
         ["openclaw", "plugins", "uninstall", "--force", "reflexio-federated"],
         check=False,
         capture_output=True,
         text=True,
     )
+    stale_ext = Path.home() / ".openclaw" / "extensions" / "reflexio-federated"
+    shutil.rmtree(stale_ext, ignore_errors=True)
 
-    # Install plugin
+    # Install plugin and restart gateway so inspect sees the new state
     try:
         subprocess.run(
             ["openclaw", "plugins", "install", str(plugin_dir)],
@@ -396,6 +398,12 @@ def _install_openclaw_integration() -> bool:
         )
         subprocess.run(
             ["openclaw", "plugins", "enable", "reflexio-federated"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["openclaw", "gateway", "restart"],
             check=True,
             capture_output=True,
             text=True,

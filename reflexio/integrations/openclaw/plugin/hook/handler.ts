@@ -92,7 +92,6 @@ export async function handleBeforePromptBuild(
   // 3. Retry unpublished turns from old sessions
   try {
     const db = getDb();
-    const userId = resolveUserId(sessionKey);
     const agentVersion = resolveAgentVersion();
     const oldSessions = getOldUnpublishedSessions(
       db,
@@ -101,6 +100,7 @@ export async function handleBeforePromptBuild(
       MAX_OLD_SESSIONS,
     );
     for (const sid of oldSessions) {
+      const userId = resolveUserId(sid);
       publishSession(
         db,
         sid,

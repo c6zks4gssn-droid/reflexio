@@ -73,7 +73,12 @@ export function checkReflexioConfigured(reflexioDir: string = REFLEXIO_DIR): boo
   try {
     const envPath = path.join(reflexioDir, ".env");
     const content = fs.readFileSync(envPath, "utf-8");
-    return content.includes("REFLEXIO_URL");
+    return content.split("\n").some((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("#")) return false;
+      const match = trimmed.match(/^REFLEXIO_URL\s*=\s*"?([^"\s]+)/);
+      return match !== null && match[1].length > 0;
+    });
   } catch {
     return false;
   }

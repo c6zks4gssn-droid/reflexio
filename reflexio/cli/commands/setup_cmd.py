@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shlex
 import shutil
 import subprocess
 from enum import Enum
@@ -643,11 +644,11 @@ def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
 
     # Session start hook (SessionStart) — checks/starts Reflexio server proactively
     session_start_hook_sh = handler_js_path.parent / "session_start_hook.sh"
-    _upsert_hook(hooks, "SessionStart", f"bash {session_start_hook_sh}")
+    _upsert_hook(hooks, "SessionStart", f"bash {shlex.quote(str(session_start_hook_sh))}")
 
     # Search hook (UserPromptSubmit) — injects Reflexio context before Claude responds
     search_hook_js = handler_js_path.parent / "search_hook.js"
-    _upsert_hook(hooks, "UserPromptSubmit", f"node {search_hook_js}")
+    _upsert_hook(hooks, "UserPromptSubmit", f"node {shlex.quote(str(search_hook_js))}")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")

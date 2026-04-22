@@ -19,10 +19,10 @@ describe("smartTruncate", () => {
     expect(smartTruncate("hello", 100)).toBe("hello");
   });
 
-  it("truncates with head + marker + tail", () => {
+  it("truncates with head + marker + tail within maxLength", () => {
     const content = "a".repeat(200);
     const result = smartTruncate(content, 100);
-    expect(result.length).toBeLessThanOrEqual(200);
+    expect(result.length).toBeLessThanOrEqual(100);
     expect(result).toContain("[...truncated");
   });
 
@@ -58,24 +58,26 @@ describe("sqlite-buffer", () => {
   it("marks turns as in-flight then published", () => {
     insertTurn(db, "sess1", "user", "hello");
     const turns = getUnpublished(db, "sess1", 3, 100);
-    markInFlight(db, "sess1", turns[turns.length - 1].id, 3);
+    const maxId = turns[turns.length - 1].id;
+    markInFlight(db, "sess1", maxId, 3);
     expect(getUnpublished(db, "sess1", 3, 100)).toHaveLength(0);
-    markPublished(db, "sess1");
+    markPublished(db, "sess1", maxId);
     expect(getUnpublished(db, "sess1", 3, 100)).toHaveLength(0);
   });
 
   it("increments retry count on failure", () => {
     insertTurn(db, "sess1", "user", "hello");
     const turns = getUnpublished(db, "sess1", 3, 100);
-    markInFlight(db, "sess1", turns[0].id, 3);
-    markFailed(db, "sess1");
+    const id = turns[0].id;
+    markInFlight(db, "sess1", id, 3);
+    markFailed(db, "sess1", id);
     const after = getUnpublished(db, "sess1", 3, 100);
     expect(after).toHaveLength(1);
     // After MAX_RETRIES failures, turn should be excluded
-    markInFlight(db, "sess1", after[0].id, 3);
-    markFailed(db, "sess1");
-    markInFlight(db, "sess1", after[0].id, 3);
-    markFailed(db, "sess1");
+    markInFlight(db, "sess1", id, 3);
+    markFailed(db, "sess1", id);
+    markInFlight(db, "sess1", id, 3);
+    markFailed(db, "sess1", id);
     expect(getUnpublished(db, "sess1", 3, 100)).toHaveLength(0);
   });
 

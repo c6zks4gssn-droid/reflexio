@@ -629,22 +629,26 @@ def _upsert_hook(hooks: dict, event_name: str, hook_command: str) -> None:
     event_hooks.append(hook_entry)
 
 
-def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
+def _merge_hook_config(
+    settings_path: Path,
+    handler_js_path: Path,
+    *,
+    expert: bool = False,
+) -> None:
     """Add or update Reflexio hooks in .claude/settings.json.
 
-    Installs two hooks:
+    Installs hooks:
     - SessionStart: checks if the Reflexio server is running and starts it in
       the background if not (~10ms, non-blocking).
     - UserPromptSubmit: runs `reflexio search` on every user prompt and injects
       results as context Claude sees.
-
-    No Stop hook is installed — conversation capture is handled by the expert
-    skill's mid-session publish or by an explicit `/reflexio-extract` command,
-    giving the user control over when to extract learnings.
+    - Stop (expert mode only): publishes the session transcript to Reflexio
+      for extraction at session end.
 
     Args:
         settings_path: Path to the project's .claude/settings.json.
         handler_js_path: Absolute path to handler.js in the installed package.
+        expert: If True, also install the Stop hook for transcript capture.
     """
     settings: dict = {}
     if settings_path.exists():
@@ -660,6 +664,10 @@ def _merge_hook_config(settings_path: Path, handler_js_path: Path) -> None:
     # Search hook (UserPromptSubmit) — injects Reflexio context before Claude responds
     search_hook_js = handler_js_path.parent / "search_hook.js"
     _upsert_hook(hooks, "UserPromptSubmit", f"node {shlex.quote(str(search_hook_js))}")
+
+    # Stop hook (expert mode) — publishes session transcript for extraction
+    if expert:
+        _upsert_hook(hooks, "Stop", f"node {shlex.quote(str(handler_js_path))}")
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -773,7 +781,7 @@ def _install_claude_code_integration(
     # Configure hook
     handler_js = integration_dir / "hook" / "handler.js"
     settings_path = claude_dir / "settings.json"
-    _merge_hook_config(settings_path, handler_js)
+    _merge_hook_config(settings_path, handler_js, expert=expert)
 
     # Write marker for uninstall auto-detection
     marker_path = claude_dir / "skills" / "reflexio" / _MARKER_FILENAME

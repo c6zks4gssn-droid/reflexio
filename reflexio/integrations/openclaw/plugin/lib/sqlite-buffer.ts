@@ -15,17 +15,22 @@ export interface Turn {
   retry_count: number;
 }
 
-/** Smart truncation: preserve head 80% + tail 20% with marker in between. */
+/** Smart truncation: preserve head + tail with marker, guaranteed <= maxLength. */
 export function smartTruncate(
   content: string,
   maxLength: number = MAX_CONTENT_LENGTH,
 ): string {
   if (!content || content.length <= maxLength) return content || "";
-  const headLen = Math.floor(maxLength * 0.8);
-  const tailLen = Math.max(0, maxLength - headLen - 80);
+  // Use a fixed-width marker estimate to break the circular dependency
+  // between marker length and truncated count.
+  const markerTemplate = "\n\n[...truncated NNNNNNN chars...]\n\n"; // ~38 chars
+  const budget = maxLength - markerTemplate.length;
+  if (budget <= 0) return content.slice(0, maxLength);
+  const headLen = Math.floor(budget * 0.8);
+  const tailLen = budget - headLen;
   const truncated = content.length - headLen - tailLen;
   const marker = `\n\n[...truncated ${truncated} chars...]\n\n`;
-  if (tailLen === 0) return content.slice(0, headLen) + marker;
+  if (tailLen <= 0) return content.slice(0, headLen) + marker;
   return content.slice(0, headLen) + marker + content.slice(-tailLen);
 }
 
@@ -93,7 +98,7 @@ export function getOldUnpublishedSessions(
 ): string[] {
   const rows = db
     .prepare(
-      "SELECT DISTINCT session_id FROM turns WHERE published = 0 AND retry_count < ? AND session_id != ? LIMIT ?",
+      "SELECT session_id FROM turns WHERE published = 0 AND retry_count < ? AND session_id != ? GROUP BY session_id ORDER BY MIN(id) LIMIT ?",
     )
     .all(maxRetries, currentSessionId, limit) as { session_id: string }[];
   return rows.map((r) => r.session_id);
@@ -124,18 +129,18 @@ export function markInFlight(
   ).run(sessionId, maxRetries, maxId);
 }
 
-/** Mark in-flight turns as successfully published. */
-export function markPublished(db: Database.Database, sessionId: string): void {
+/** Mark in-flight turns as successfully published (scoped to batch). */
+export function markPublished(db: Database.Database, sessionId: string, maxId: number): void {
   db.prepare(
-    "UPDATE turns SET published = 1 WHERE session_id = ? AND published = 2",
-  ).run(sessionId);
+    "UPDATE turns SET published = 1 WHERE session_id = ? AND published = 2 AND id <= ?",
+  ).run(sessionId, maxId);
 }
 
-/** Reset in-flight turns back to unpublished and increment retry count. */
-export function markFailed(db: Database.Database, sessionId: string): void {
+/** Reset in-flight turns back to unpublished and increment retry count (scoped to batch). */
+export function markFailed(db: Database.Database, sessionId: string, maxId: number): void {
   db.prepare(
-    "UPDATE turns SET published = 0, retry_count = retry_count + 1 WHERE session_id = ? AND published = 2",
-  ).run(sessionId);
+    "UPDATE turns SET published = 0, retry_count = retry_count + 1 WHERE session_id = ? AND published = 2 AND id <= ?",
+  ).run(sessionId, maxId);
 }
 
 /** Delete published turns older than the given number of days. */

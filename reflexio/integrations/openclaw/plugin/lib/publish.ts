@@ -77,7 +77,7 @@ export function publishSession(
   child.on("error", (err) => {
     log?.error?.(`[reflexio] Failed to spawn reflexio binary: ${err.message}`);
     try {
-      markFailed(db, sessionId);
+      markFailed(db, sessionId, maxId);
     } catch (dbErr) {
       log?.error?.(`[reflexio] Failed to update retry count after spawn error: ${dbErr}`);
     }
@@ -89,14 +89,14 @@ export function publishSession(
   child.on("close", (code) => {
     if (code === 0) {
       try {
-        markPublished(db, sessionId);
+        markPublished(db, sessionId, maxId);
       } catch (err) {
         log?.error?.(`[reflexio] Failed to mark turns published: ${err}`);
       }
     } else {
       log?.error?.(`[reflexio] Publish failed (exit ${code}), incrementing retry`);
       try {
-        markFailed(db, sessionId);
+        markFailed(db, sessionId, maxId);
       } catch (err) {
         log?.error?.(`[reflexio] Failed to update retry count: ${err}`);
       }

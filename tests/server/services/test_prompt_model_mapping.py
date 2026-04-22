@@ -31,8 +31,8 @@ _PROMPT_BANK_DIR = (
 PROMPT_VERSION_MAP: dict[str, tuple[str, str | None]] = {
     "playbook_extraction_main": ("v1.0.0", "playbook_extraction"),
     "playbook_extraction_main_incremental": ("v1.0.0", "playbook_extraction"),
-    "playbook_extraction_context": ("v4.0.0", None),
-    "playbook_extraction_context_incremental": ("v4.0.0", None),
+    "playbook_extraction_context": ("v4.0.1", None),
+    "playbook_extraction_context_incremental": ("v4.0.1", None),
     "playbook_should_generate": ("v3.0.0", "boolean_evaluation"),
     "playbook_should_generate_expert": ("v1.0.0", "boolean_evaluation"),
     "playbook_extraction_context_expert": ("v3.0.0", None),

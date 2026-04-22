@@ -199,32 +199,51 @@ function parseTranscript(transcriptPath) {
 		}
 	}
 
-	// Pair up into interactions: each interaction = one user + one assistant
+	// Merge consecutive same-role entries into one logical turn. Claude Code
+	// writes one JSONL entry per API response, so a single assistant turn can
+	// span multiple entries (e.g. text, tool_use, then text again after a
+	// tool_result on the user side). Without merging, only the first entry
+	// gets paired and the rest either look like orphaned turns or get
+	// dropped — truncating the assistant response in the UI.
+	const merged = [];
+	for (const m of messages) {
+		const last = merged[merged.length - 1];
+		if (last && last.role === m.role) {
+			last.content = `${last.content}\n${m.content}`.slice(
+				0,
+				MAX_CONTENT_LENGTH,
+			);
+			if (m.tools_used && m.tools_used.length > 0) {
+				last.tools_used = [...(last.tools_used || []), ...m.tools_used];
+			}
+		} else {
+			merged.push({ ...m, tools_used: m.tools_used ? [...m.tools_used] : [] });
+		}
+	}
+
+	// Pair up into interactions: each interaction = one user + one assistant.
+	// Skip user turns with no assistant response (e.g. interrupted turns,
+	// meta slash commands) so we don't emit empty-assistant interactions.
 	const interactions = [];
 	let i = 0;
-	while (i < messages.length && interactions.length < MAX_INTERACTIONS) {
-		if (messages[i].role === "user") {
-			interactions.push({
-				role: "user",
-				content: messages[i].content,
-			});
-			i++;
-			// Attach the next assistant response, if any
-			if (i < messages.length && messages[i].role === "assistant") {
+	while (i < merged.length && interactions.length < MAX_INTERACTIONS) {
+		if (merged[i].role === "user") {
+			if (i + 1 < merged.length && merged[i + 1].role === "assistant") {
+				interactions.push({ role: "user", content: merged[i].content });
 				interactions.push({
 					role: "assistant",
-					content: messages[i].content,
-					tools_used: messages[i].tools_used || [],
+					content: merged[i + 1].content,
+					tools_used: merged[i + 1].tools_used || [],
 				});
+				i += 2;
+			} else {
+				// Unpaired user turn — drop it rather than publish an
+				// interaction with an empty assistant side.
 				i++;
 			}
 		} else {
-			// Orphaned assistant message (no preceding user) — still include it
-			interactions.push({
-				role: "assistant",
-				content: messages[i].content,
-				tools_used: messages[i].tools_used || [],
-			});
+			// Orphaned assistant turn (no preceding user) — skip; without a
+			// user query it has no value for playbook extraction.
 			i++;
 		}
 	}

@@ -1,11 +1,11 @@
-# Manual Testing Guide — Reflexio × OpenClaw Integration
+# Manual Testing Guide — Reflexio × OpenClaw Federated Plugin
 
-Step-by-step guide for manually testing the integration end-to-end. Each phase builds on the previous one. This guide is self-contained — you should not need to reference other documentation.
+Step-by-step guide for manually testing the plugin end-to-end. Each phase builds on the previous one. This guide is self-contained — you should not need to reference other documentation.
 
 ## Prerequisites
 
 - OpenClaw installed and running: `openclaw --version`
-- Reflexio CLI installed: `pip install reflexio` (or `uv pip install reflexio`)
+- Reflexio OpenClaw plugin installed: `./scripts/install.sh` or `clawhub plugin install reflexio-federated`
 - An LLM API key for the Reflexio server (e.g., `export OPENAI_API_KEY=sk-...`)
 - A terminal where you can see OpenClaw's stderr output (agent logs)
 
@@ -28,53 +28,53 @@ Look for lines starting with `[reflexio]` — these are from the Reflexio hooks.
 
 ## Phase 1: Install & Verify
 
-### 1.1 Run the setup wizard
+### 1.1 Install the plugin (if not already installed)
 
 ```bash
-reflexio setup openclaw
+# Option A: From source
+cd /path/to/reflexio/integrations/openclaw
+./scripts/install.sh
+
+# Option B: Via ClawHub
+clawhub plugin install reflexio-federated
 ```
 
-Follow the prompts to select your LLM provider and storage backend (SQLite for local testing).
-
-### 1.2 Verify all components are installed
+### 1.2 Verify plugin is loaded
 
 ```bash
-# Hook registered?
-openclaw hooks list
-# Expected: ✓ ready │ 🧠 reflexio-context
+openclaw plugins list
+# Expected: reflexio-federated (loaded)
 
-# Skill installed?
-ls ~/.openclaw/skills/reflexio/SKILL.md
-
-# Rule installed?
-ls ~/.openclaw/workspace/reflexio.md
-
-# Commands installed?
-ls ~/.openclaw/skills/reflexio-extract/SKILL.md
-ls ~/.openclaw/skills/reflexio-aggregate/SKILL.md
+openclaw plugins inspect reflexio-federated
+# Expected: Status: loaded
 ```
 
-All five checks should succeed. If any fail, re-run `reflexio setup openclaw`.
+If the plugin shows as "disabled" or failed, run:
+
+```bash
+openclaw plugins enable reflexio-federated
+openclaw gateway restart
+```
 
 ### 1.3 Verify Reflexio server (optional)
 
-The hook automatically starts the local Reflexio server when the first OpenClaw session begins (see Phase 2). You can optionally verify it manually:
+The plugin automatically starts the local Reflexio server on first agent session (see Phase 2). You can optionally verify it manually:
 
 ```bash
 reflexio status check
 ```
 
-If the server isn't running yet, that's fine — the hook will start it automatically.
+If the server isn't running yet, that's fine — the plugin will start it automatically during first-use setup.
 
 ---
 
-## Phase 2: Server Auto-Start & Cold-Start Search
+## Phase 2: First-Session Auto-Setup & Server Auto-Start
 
-This phase verifies two things: (1) the hook automatically starts the Reflexio server if it's not running, and (2) the search hook works correctly with no playbooks yet.
+This phase verifies the plugin's first-use setup (CLI detection, LLM provider prompt, server startup) and that the search hook works correctly with no playbooks yet.
 
-### 2.0 Ensure the server is NOT running
+### 2.0 Ensure the server is NOT running (optional)
 
-Stop the server if it's currently running, so we can test auto-start:
+If you want to test auto-start, stop the server if it's running:
 
 ```bash
 reflexio services stop 2>/dev/null
@@ -83,7 +83,9 @@ reflexio status check
 # Expected: connection error or "Server is not running"
 ```
 
-### 2.1 Start a conversation — the hook should auto-start the server
+If the server is already running, that's fine — Phase 2.1 will still verify the plugin works with an existing server.
+
+### 2.1 Start a conversation — the plugin should perform first-use setup
 
 ```bash
 openclaw chat
@@ -91,44 +93,47 @@ openclaw chat
 
 Send a simple, self-contained task that doesn't require a project:
 
-```
+```text
 Write a Python function that takes a list of numbers and returns the mean and median.
 ```
 
 **What to check:**
 - The agent responds normally with working code (no errors, no mention of Reflexio)
-- In the hook logs (stderr), you should see:
-  - `[reflexio] bootstrap hook fired` — the bootstrap handler ran
-  - `[reflexio] Server not running — starting in background` — auto-start triggered
-  - The first search may fail (`[reflexio] Per-message search failed`) — this is expected because the server needs ~5-10 seconds to start
-- The response should NOT be delayed more than ~5 seconds by the hook (timeout limit)
+- On first session, you may see a one-time LLM provider setup prompt (if reflexio-ai CLI needs initialization)
+- In the plugin logs (stderr), you should see:
+  - `[reflexio] agent:bootstrap hook fired` — the bootstrap handler ran
+  - `[reflexio] Server running` or `[reflexio] Starting server` — server health check
+  - Potentially `[reflexio] Per-message search` — search attempted for first message
+- The response should NOT be delayed more than ~5 seconds by the plugin (timeout limit)
+- If setup runs, look for confirmation messages about LLM provider and storage configuration
 
-### 2.2 Verify the server started automatically
+### 2.2 Verify the server is running
 
-After the first message, wait ~10 seconds and check:
+After the first message, check:
 
 ```bash
 reflexio status check
 # Expected: Server is running
 ```
 
-The hook started the server in the background during `agent:bootstrap`. Subsequent messages in this session (and all future sessions) will find the server ready.
+The plugin starts the server in the background during `agent:bootstrap` if needed. Subsequent messages in this session (and all future sessions) will find the server ready.
 
-### 2.3 Send a second message to verify search works
+### 2.3 Send a second message to verify search is working
 
 In the same session:
 
-```
+```text
 Now write a version that also returns the standard deviation.
 ```
 
 **What to check:**
-- In hook logs: search should succeed now (no "Search failed" errors)
+- In plugin logs: search should be attempted (look for `[reflexio]` lines with search-related messages)
 - Search results may be empty (no playbooks yet on cold start) — that's expected
+- No search timeout errors in logs (timeout is 5 seconds by default)
 
 ### 2.4 Verify the agent doesn't mention Reflexio
 
-The rule file says "never mention Reflexio to the user." Confirm the agent response contains no references to Reflexio, playbooks, or search results.
+The agent's behavioral rule says "never mention Reflexio to the user." Confirm the agent response contains no references to Reflexio, playbooks, or search results.
 
 ---
 
@@ -141,39 +146,41 @@ This phase creates a correction scenario and verifies the system captures it.
 In the same session (or a new one via `openclaw chat`), send these messages in order. The goal is to get the agent to do something one way, then correct it:
 
 **Message 1** — give a task with an implicit choice:
-```
+```text
 Write a shell script that installs project dependencies and starts the dev server.
 ```
 
 Wait for the agent to respond. It will likely use `npm install` or a similar default.
 
 **Message 2** — correct the agent's choice:
-```
+```text
 No, don't use npm. In this project we always use pnpm. Please rewrite using pnpm instead.
 ```
 
 Wait for the agent to apply the correction.
 
 **Message 3** — continue the task to provide more context:
-```
+```text
 Also add a health check that curls localhost:3000/health before starting the main process.
 ```
 
 **What to check:**
 - The agent applies the correction (uses pnpm in the rewrite)
-- In hook logs: look for `reflexio publish` — the skill should detect the correction and publish it
-- If you don't see a publish, that's also OK — the session-end hook will capture the full conversation
+- In plugin logs: look for publish-related messages — the plugin should detect the correction
+- If you don't see a publish during the session, that's OK — the session-end hook will capture the full conversation and publish it then
 
 ### 3.2 End the session
 
 Exit the session:
-```
+```text
 /stop
 ```
 (or press Ctrl+C, depending on your OpenClaw configuration)
 
-**What to check in hook logs:**
-- `[reflexio] Queued N interactions for publish` — the `command:stop` handler flushed buffered turns
+**What to check in plugin logs:**
+- `[reflexio] command:stop hook fired` — the plugin detected session end
+- `[reflexio] Queued N interactions for publish` — buffered turns are being published
+- `[reflexio] Published via reflexio_publish CLI` — the publish command executed successfully
 
 ### 3.3 Verify playbooks were extracted
 
@@ -213,12 +220,12 @@ openclaw chat
 
 Send a task related to the correction from Phase 3:
 
-```
+```text
 Add the 'lodash' package to this project's dependencies.
 ```
 
 **What to check:**
-- In hook logs: `[reflexio]` lines showing search was executed
+- In plugin logs: `[reflexio]` lines showing search was executed before the response
 - The agent should use `pnpm add lodash` (not `npm install lodash`) — applying the correction from Phase 3 **without being told again**
 - If the agent still uses npm, the playbook may not have been extracted yet. Check `reflexio user-playbooks list` and retry after extraction completes.
 
@@ -226,7 +233,7 @@ Add the 'lodash' package to this project's dependencies.
 
 In the same session:
 
-```
+```text
 Explain how Python's garbage collector works.
 ```
 
@@ -247,40 +254,42 @@ openclaw chat
 ```
 
 Send a few messages:
-```
+```text
 Write a function to validate email addresses using regex.
 ```
 Then after the response:
-```
+```text
 That regex is too permissive. Use a stricter pattern that requires a TLD of at least 2 characters.
 ```
 
-Now run the extract command:
-```
-/reflexio-extract
+Now use the `reflexio_publish` tool to flush immediately:
+
+Ask the agent to use the `reflexio_publish` tool to publish the conversation:
+
+```text
+Please publish our conversation using the reflexio_publish tool so I can test the publish mechanism.
 ```
 
 **What to check:**
-- The agent reviews the conversation and builds a JSON summary
-- It publishes via `reflexio publish --force-extraction`
-- It reports what was published (e.g., "Published 2 interactions to Reflexio")
+- The agent calls the `reflexio_publish` tool
+- Tool output confirms the conversation was published (e.g., "Published 2 interactions to Reflexio")
 - Verify extraction worked:
   ```bash
   reflexio user-playbooks list --limit 10
   ```
   You should see a new playbook about email validation regex.
 
-### 5.2 Test `/reflexio-aggregate`
+### 5.2 Test manual aggregation
 
-After accumulating playbooks from Phases 3-5.1:
+After accumulating playbooks from Phases 3-5.1, manually trigger aggregation:
 
-```
-/reflexio-aggregate
+```bash
+reflexio agent-playbooks aggregate --agent-version openclaw-agent --wait
 ```
 
 **What to check:**
-- The agent runs `reflexio agent-playbooks aggregate --wait`
-- It reports how many agent playbooks were created or updated
+- Command completes without errors
+- Reports how many agent playbooks were created or updated
 - Verify:
   ```bash
   reflexio agent-playbooks list --agent-version openclaw-agent
@@ -319,11 +328,11 @@ openclaw chat
 ```
 
 Have this conversation:
-```
+```text
 Write a function to format a date as a string.
 ```
 Then:
-```
+```text
 Always use ISO 8601 format (YYYY-MM-DD) for dates, never locale-specific formats.
 ```
 Exit: `/stop`
@@ -334,11 +343,11 @@ openclaw chat --agent test-reviewer
 ```
 
 Have this conversation:
-```
+```text
 Write a function to log errors.
 ```
 Then:
-```
+```text
 Always include the stack trace when logging errors, not just the message.
 ```
 Exit: `/stop`
@@ -402,7 +411,7 @@ openclaw chat
 ```
 
 Send a task:
-```
+```text
 Explain the difference between TCP and UDP.
 ```
 
@@ -423,7 +432,7 @@ reflexio status check
 ```
 
 Send a second message in the same session:
-```
+```text
 Now explain when you'd use one over the other.
 ```
 
@@ -449,35 +458,47 @@ Exit the session: `/stop`
 
 ## Phase 8: Uninstall
 
-### 8.1 Uninstall the integration
+### 8.1 Uninstall the plugin
 
 ```bash
-reflexio setup openclaw --uninstall
+cd /path/to/reflexio/integrations/openclaw
+./scripts/uninstall.sh
 ```
 
-Confirm when prompted.
-
-### 8.2 Verify all components are removed
+Or if using ClawHub:
 
 ```bash
-openclaw hooks list
-# Should NOT show reflexio-context
-
-ls ~/.openclaw/skills/reflexio 2>/dev/null && echo "STILL EXISTS" || echo "Removed"
-ls ~/.openclaw/skills/reflexio-extract 2>/dev/null && echo "STILL EXISTS" || echo "Removed"
-ls ~/.openclaw/skills/reflexio-aggregate 2>/dev/null && echo "STILL EXISTS" || echo "Removed"
-ls ~/.openclaw/workspace/reflexio.md 2>/dev/null && echo "STILL EXISTS" || echo "Removed"
+clawhub plugin uninstall reflexio-federated
 ```
 
-All four should print "Removed."
+### 8.2 Verify plugin is removed
 
-### 8.3 Verify agent works without Reflexio
+```bash
+openclaw plugins list
+# Should NOT show reflexio-federated
+
+openclaw plugins inspect reflexio-federated 2>&1 | grep -i "not found"
+# Expected: plugin not found or similar error
+```
+
+### 8.3 Verify agent works without plugin
 
 ```bash
 openclaw chat
 ```
 
-Send any message and confirm the agent works normally with no Reflexio-related errors in logs.
+Send any message and confirm the agent works normally with no Reflexio-related errors or log lines.
+
+### 8.4 Optional: Delete user data
+
+To remove stored conversations and playbooks:
+
+```bash
+cd /path/to/reflexio/integrations/openclaw
+./scripts/uninstall.sh --purge
+```
+
+This deletes `~/.reflexio/` entirely. If you only ran `uninstall.sh` without `--purge`, data is preserved in case you want to re-enable the plugin later.
 
 ---
 
@@ -485,11 +506,12 @@ Send any message and confirm the agent works normally with no Reflexio-related e
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Agent doesn't follow past corrections | Search hook timeout or no playbooks yet | Check `reflexio user-playbooks list`; verify server is running |
-| `[reflexio] Search failed` in every message | Server not running | `reflexio services start --only backend &` |
-| Playbooks not extracted after session | Batch interval not met (need 5+ interactions) | Use `/reflexio-extract` for manual extraction, or seed manually with `reflexio user-playbooks add` |
-| Agent mentions Reflexio to user | Rule not installed | Check `ls ~/.openclaw/workspace/reflexio.md`; re-run `reflexio setup openclaw` |
-| Wrong user_id in playbooks | `REFLEXIO_USER_ID` env override | Run `unset REFLEXIO_USER_ID`; let auto-detection use the agentId |
+| Plugin doesn't load | Plugin not installed or gateway not restarted | Run `./scripts/install.sh` or `clawhub plugin install reflexio-federated`; verify with `openclaw plugins list` |
+| Agent doesn't follow past corrections | Search plugin timeout or no playbooks yet | Check `reflexio user-playbooks list`; verify server is running with `reflexio status check` |
+| `[reflexio] Search failed` in every message | Server not running | `reflexio services start --only backend &` or restart the agent |
+| Playbooks not extracted after session | Batch interval not met (need 5+ interactions) | Use `reflexio_publish` tool to manually flush, or seed playbooks with `reflexio user-playbooks add` |
+| Agent mentions Reflexio to user | Agent behavioral rule not applied | Check if plugin skills loaded correctly; restart agent |
+| First-use setup never ran | LLM provider already configured | Run `reflexio setup openclaw` manually if you need to reconfigure |
 | Aggregation never runs | Flag file stuck | `rm ~/.reflexio/logs/.aggregation-running` |
-| Can't start second agent | Agent not configured | `openclaw agents add --name <name>` then `openclaw agents list` to verify |
-| Search returns corrections from wrong agent | User playbooks aren't scoped | Verify `--user-id` matches the agent name; check with `reflexio user-playbooks list --user-id <name>` |
+| Can't start second agent | Agent not configured in OpenClaw | `openclaw agents add --name <name>` then `openclaw agents list` to verify |
+| Search returns corrections from wrong agent | User playbooks aren't scoped by agent | Verify user_id resolution with `reflexio search "<query>" --user-id <agent-name>` |

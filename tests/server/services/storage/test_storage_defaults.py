@@ -19,16 +19,16 @@ def test_local_storage_path_defaults_to_home_reflexio_data() -> None:
     expected = str(Path.home() / ".reflexio" / "data")
 
     env = {k: v for k, v in os.environ.items() if k != "LOCAL_STORAGE_PATH"}
-    with patch.dict(os.environ, env, clear=True):
-        import reflexio.server as server_module
+    import reflexio.server as server_module
 
-        reloaded = importlib.reload(server_module)
-        try:
+    try:
+        with patch.dict(os.environ, env, clear=True):
+            reloaded = importlib.reload(server_module)
             assert expected == reloaded.LOCAL_STORAGE_PATH
-        finally:
-            # Restore module with the original process environment so later
-            # tests see the usual value.
-            importlib.reload(server_module)
+    finally:
+        # Restore module with the original process environment so later
+        # tests see the usual value. Must run after patch.dict exits.
+        importlib.reload(server_module)
 
 
 def test_local_storage_path_empty_string_falls_back_to_default() -> None:
@@ -36,14 +36,16 @@ def test_local_storage_path_empty_string_falls_back_to_default() -> None:
     rather than resolving to an empty path."""
     expected = str(Path.home() / ".reflexio" / "data")
 
-    with patch.dict(os.environ, {"LOCAL_STORAGE_PATH": ""}):
-        import reflexio.server as server_module
+    import reflexio.server as server_module
 
-        reloaded = importlib.reload(server_module)
-        try:
+    try:
+        with patch.dict(os.environ, {"LOCAL_STORAGE_PATH": ""}):
+            reloaded = importlib.reload(server_module)
             assert expected == reloaded.LOCAL_STORAGE_PATH
-        finally:
-            importlib.reload(server_module)
+    finally:
+        # Restore module with the original process environment so later
+        # tests see the usual value. Must run after patch.dict exits.
+        importlib.reload(server_module)
 
 
 def test_sqlite_storage_uses_local_storage_path_when_db_path_none() -> None:

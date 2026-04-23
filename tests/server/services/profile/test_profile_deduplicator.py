@@ -1122,6 +1122,117 @@ class TestDeduplicate:
         # The directive must be consumed — not leak back as a stored fact.
         assert profiles == []
 
+    def test_deduplicate_strips_markers_on_llm_exception(
+        self,
+        mock_request_context,
+        mock_llm_client,
+        mock_site_var_manager,
+    ):
+        """When the LLM call raises, fallback must strip canonical deletion markers.
+
+        Regression guard: if the LLM fails, returning `new_profiles` verbatim
+        would persist "Requested removal of …" markers as regular facts — the
+        exact zombie-profile outcome the deletion-directive channel was built
+        to prevent. The fallback must suppress markers while preserving
+        ordinary profiles.
+        """
+        timestamp = int(datetime.now(UTC).timestamp())
+        ordinary = UserProfile(
+            profile_id=str(uuid.uuid4()),
+            user_id="test_user",
+            content="User prefers dark mode",
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="req_ok",
+            profile_time_to_live=ProfileTimeToLive.ONE_MONTH,
+            source="extractor_a",
+        )
+        marker = UserProfile(
+            profile_id=str(uuid.uuid4()),
+            user_id="test_user",
+            content=(
+                "Requested removal of interest in self-improving agents "
+                "from stored profiles"
+            ),
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="req_forget",
+            profile_time_to_live=ProfileTimeToLive.ONE_DAY,
+            source="extractor_a",
+        )
+
+        mock_request_context.storage.search_user_profile.return_value = []
+        mock_llm_client.generate_chat_response.side_effect = RuntimeError(
+            "LLM unavailable"
+        )
+
+        deduplicator = ProfileDeduplicator(
+            request_context=mock_request_context,
+            llm_client=mock_llm_client,
+        )
+        profiles, delete_ids, superseded = deduplicator.deduplicate(
+            new_profiles=[ordinary, marker],
+            user_id="test_user",
+            request_id="test_request",
+        )
+
+        assert delete_ids == []
+        assert superseded == []
+        assert [p.profile_id for p in profiles] == [ordinary.profile_id]
+
+    def test_deduplicate_strips_markers_on_empty_output(
+        self,
+        mock_request_context,
+        mock_llm_client,
+        mock_site_var_manager,
+    ):
+        """Empty dedup output (no groups, no deletions) still strips markers.
+
+        If the LLM returns nothing to act on but a marker profile is present in
+        `new_profiles`, the fallback must drop the marker rather than persist
+        it as a fact.
+        """
+        timestamp = int(datetime.now(UTC).timestamp())
+        ordinary = UserProfile(
+            profile_id=str(uuid.uuid4()),
+            user_id="test_user",
+            content="User prefers dark mode",
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="req_ok",
+            profile_time_to_live=ProfileTimeToLive.ONE_MONTH,
+            source="extractor_a",
+        )
+        marker = UserProfile(
+            profile_id=str(uuid.uuid4()),
+            user_id="test_user",
+            content="Requested removal of preference for tabs over spaces",
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="req_forget",
+            profile_time_to_live=ProfileTimeToLive.ONE_DAY,
+            source="extractor_a",
+        )
+
+        mock_request_context.storage.search_user_profile.return_value = []
+        mock_llm_client.generate_chat_response.return_value = (
+            ProfileDeduplicationOutput(
+                duplicate_groups=[],
+                unique_ids=[],
+                deletions=[],
+            )
+        )
+
+        deduplicator = ProfileDeduplicator(
+            request_context=mock_request_context,
+            llm_client=mock_llm_client,
+        )
+        profiles, delete_ids, superseded = deduplicator.deduplicate(
+            new_profiles=[ordinary, marker],
+            user_id="test_user",
+            request_id="test_request",
+        )
+
+        assert delete_ids == []
+        assert superseded == []
+        assert [p.profile_id for p in profiles] == [ordinary.profile_id]
+
 
 # ===============================
 # Test: Integration

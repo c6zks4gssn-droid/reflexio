@@ -33,6 +33,39 @@ logger = logging.getLogger(__name__)
 _format_profile_timestamp = format_dedup_timestamp
 
 
+# Canonical prefix emitted by the extractor for forget/delete requests. The
+# dedup LLM routes matching NEW profiles into `deletions`; any fallback path
+# that skips the LLM step must strip these markers before returning so they
+# are never persisted as facts.
+_DELETION_MARKER_PREFIX = "Requested removal of"
+
+
+def _strip_deletion_markers(
+    profiles: list[UserProfile],
+) -> list[UserProfile]:
+    """
+    Drop profiles whose content is a canonical deletion marker.
+
+    Used on fallback paths (LLM error, unexpected response type, empty dedup
+    output) to prevent "Requested removal of …" markers emitted by the
+    extractor from being persisted as regular profile facts when the dedup
+    LLM step is skipped or yields no deletions. Persisting such markers would
+    recreate the exact zombie-profile failure mode the deletion-directive
+    channel was introduced to eliminate.
+
+    Args:
+        profiles (list[UserProfile]): Profiles to filter.
+
+    Returns:
+        list[UserProfile]: Profiles with deletion markers removed.
+    """
+    return [
+        p
+        for p in profiles
+        if not (p.content or "").lstrip().startswith(_DELETION_MARKER_PREFIX)
+    ]
+
+
 # ===============================
 # Profile-specific Pydantic Output Schemas for LLM
 # ===============================
@@ -372,16 +405,16 @@ class ProfileDeduplicator(BaseDeduplicator):
                     "Unexpected response type from deduplication LLM: %s",
                     type(response),
                 )
-                return new_profiles, [], []
+                return _strip_deletion_markers(new_profiles), [], []
 
             dedup_output = response
         except Exception as e:
             logger.error("Failed to identify duplicates: %s", str(e))
-            return new_profiles, [], []
+            return _strip_deletion_markers(new_profiles), [], []
 
         if not dedup_output.duplicate_groups and not dedup_output.deletions:
             logger.info("No duplicate or deletion actions for request %s", request_id)
-            return new_profiles, [], []
+            return _strip_deletion_markers(new_profiles), [], []
 
         logger.info(
             "Found %d duplicate profile groups and %d deletion directives for request %s",
@@ -453,9 +486,33 @@ class ProfileDeduplicator(BaseDeduplicator):
                 prefix, idx = parsed
                 if prefix == "NEW":
                     group_new_indices.append(idx)
-                    handled_new_indices.add(idx)
                 elif prefix == "EXISTING":
                     group_existing_indices.append(idx)
+
+            # Reject groups that overlap with profiles already consumed by a
+            # deletion directive. Merging such a group would write a
+            # replacement profile containing content the user asked to forget.
+            conflicting_new = [i for i in group_new_indices if i in handled_new_indices]
+            conflicting_existing = [
+                i
+                for i in group_existing_indices
+                if 0 <= i < len(existing_profiles)
+                and existing_profiles[i].profile_id
+                and existing_profiles[i].profile_id in seen_delete_ids
+            ]
+            if conflicting_new or conflicting_existing:
+                logger.warning(
+                    "Skipping duplicate group %s: overlaps with deletion "
+                    "directives (NEW indices=%s, EXISTING indices=%s)",
+                    group.item_ids,
+                    conflicting_new,
+                    conflicting_existing,
+                )
+                continue
+
+            # Mark NEW indices as handled only after the overlap check passes.
+            for idx in group_new_indices:
+                handled_new_indices.add(idx)
 
             # Collect existing profile IDs to delete and their profiles for changelog (deduplicated)
             for eidx in group_existing_indices:

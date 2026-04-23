@@ -120,7 +120,8 @@ Note: if the same session also surfaces a behavioral rule (e.g., "verify column 
 3. Always include `ttl` for new profiles; pick the shortest TTL that the fact will plausibly remain true for.
 4. Never output behavioral rules for the agent here — those belong to the playbook extractor.
 5. **Never extract secrets or credentials.** Do not create profile entries for API keys, access tokens, passwords, OAuth secrets, private keys, auth headers, `.env` values, connection strings, or any other credential-shaped content, even if the user pasted such content into the conversation. Treat those as noise; skip them.
-6. Return `[]` when there is nothing new to extract.
+6. **Forget / delete / remove requests.** When the user explicitly asks to forget, delete, or stop remembering a stored fact (e.g. "forget that I like X", "remove my interest in Y", "don't remember that I work at Z"), emit a single profile entry whose `content` begins with "Requested removal of" and names the topic in positive form — for example, `"Requested removal of interest in self-improving agents from stored profiles"`. Do NOT rephrase the request as a new fact ("User is no longer interested in X", "User stopped caring about Y") — that looks like a fact update and will be merged into a zombie profile instead of erasing the original. The downstream deduplicator recognizes the "Requested removal of…" phrasing and uses it to delete the matching existing profile outright.
+7. Return `[]` when there is nothing new to extract.
 
 ## Existing profiles for context (do NOT re-extract these)
 

@@ -538,11 +538,11 @@ class SQLiteStorageBase(BaseStorage):
         self.api_key_config = api_key_config
         self._enable_document_expansion = enable_document_expansion
 
-        # Resolve db_path: explicit arg > SQLITE_FILE_DIRECTORY env var > reflexio/data/
+        # Resolve db_path: explicit arg > LOCAL_STORAGE_PATH env var > ~/.reflexio/data/
         if db_path is None:
-            from reflexio.server import SQLITE_FILE_DIRECTORY
+            from reflexio.server import LOCAL_STORAGE_PATH
 
-            db_path = str(Path(SQLITE_FILE_DIRECTORY) / "reflexio.db")
+            db_path = str(Path(LOCAL_STORAGE_PATH) / "reflexio.db")
 
         self.db_path = db_path
         self._lock = threading.RLock()

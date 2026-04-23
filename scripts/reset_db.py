@@ -20,11 +20,11 @@ _PROJECT_ROOT = _THIS_DIR.parent  # repo root
 
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from reflexio.server import SQLITE_FILE_DIRECTORY
+from reflexio.server import LOCAL_STORAGE_PATH
 
 
 def _default_db_path() -> Path:
-    return Path(SQLITE_FILE_DIRECTORY) / "reflexio.db"
+    return Path(LOCAL_STORAGE_PATH) / "reflexio.db"
 
 
 def reset_db(db_path: Path) -> None:

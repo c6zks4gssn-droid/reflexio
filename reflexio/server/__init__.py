@@ -26,17 +26,11 @@ OPENAI_API_KEY = os.environ.get(
     "",
 ).strip()
 
-# Local file related
+# Local storage directory — houses disk-storage artifacts and SQLite DB files.
 
-LOCAL_STORAGE_PATH = os.environ.get(
-    "LOCAL_STORAGE_PATH", _DEFAULT_DATA_DIR
-).strip() or _DEFAULT_DATA_DIR
-
-# Local SQLite database file related
-
-SQLITE_FILE_DIRECTORY = os.environ.get(
-    "SQLITE_FILE_DIRECTORY", _DEFAULT_DATA_DIR
-).strip() or _DEFAULT_DATA_DIR
+LOCAL_STORAGE_PATH = (
+    os.environ.get("LOCAL_STORAGE_PATH", "").strip() or _DEFAULT_DATA_DIR
+)
 
 # Interaction cleanup configuration
 

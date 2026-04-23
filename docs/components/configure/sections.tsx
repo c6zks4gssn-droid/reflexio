@@ -49,7 +49,7 @@ export function StorageSection({
   return (
     <Section
       title="Storage (SQLite)"
-      description="This build only supports SQLite storage. Leave blank to use the default file from SQLITE_FILE_DIRECTORY."
+      description="This build only supports SQLite storage. Leave blank to use the default file from LOCAL_STORAGE_PATH."
     >
       <FieldRow
         label="Database file path"

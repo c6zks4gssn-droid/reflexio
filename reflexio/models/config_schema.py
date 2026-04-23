@@ -129,7 +129,7 @@ class StorageConfigTest(IntEnum):
 class StorageConfigSQLite(BaseModel):
     """SQLite storage configuration."""
 
-    db_path: str | None = None  # None = use SQLITE_FILE_DIRECTORY env var default
+    db_path: str | None = None  # None = use LOCAL_STORAGE_PATH env var default
 
 
 class StorageConfigSupabase(BaseModel):

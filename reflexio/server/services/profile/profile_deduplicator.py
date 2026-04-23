@@ -33,11 +33,6 @@ logger = logging.getLogger(__name__)
 _format_profile_timestamp = format_dedup_timestamp
 
 
-# Backward-compat alias — existing unit tests import this name from this
-# module. Delegates to the shared helper in deduplication_utils.
-_format_profile_timestamp = format_dedup_timestamp
-
-
 # ===============================
 # Profile-specific Pydantic Output Schemas for LLM
 # ===============================
@@ -71,6 +66,38 @@ class ProfileDuplicateGroup(BaseModel):
     )
 
 
+class ProfileDeletionDirective(BaseModel):
+    """
+    Represents a NEW profile that is a meta-request to forget an EXISTING fact.
+
+    Used when the user explicitly asks the system to erase a previously-stored
+    profile (e.g. "forget that I like X"). Unlike a duplicate group, a deletion
+    directive removes the matched EXISTING profile(s) without writing any merged
+    or replacement profile — the NEW directive is consumed, not retained.
+
+    Attributes:
+        new_id: ID of the NEW profile that expresses the deletion directive (e.g. 'NEW-0')
+        existing_ids: IDs of EXISTING profiles to delete without replacement (e.g. ['EXISTING-0'])
+        reasoning: Brief explanation of why this was classified as a deletion directive
+            rather than a fact update
+    """
+
+    new_id: str = Field(
+        description="ID of the NEW profile that is a deletion directive (e.g. 'NEW-0')"
+    )
+    existing_ids: list[str] = Field(
+        description="IDs of EXISTING profiles to delete without replacement (e.g. ['EXISTING-0'])"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of the deletion classification"
+    )
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={"additionalProperties": False},
+    )
+
+
 class ProfileDeduplicationOutput(BaseModel):
     """
     Output schema for profile deduplication with NEW/EXISTING format.
@@ -78,6 +105,10 @@ class ProfileDeduplicationOutput(BaseModel):
     Attributes:
         duplicate_groups: List of duplicate groups to merge
         unique_ids: List of IDs of unique NEW profiles (e.g., 'NEW-2')
+        deletions: List of deletion directives — NEW profiles that are pure
+            meta-requests to erase an EXISTING profile. Both the NEW and the
+            matched EXISTING profile(s) are removed; no merged replacement is
+            produced.
     """
 
     duplicate_groups: list[ProfileDuplicateGroup] = Field(
@@ -86,6 +117,14 @@ class ProfileDeduplicationOutput(BaseModel):
     unique_ids: list[str] = Field(
         default=[],
         description="IDs of unique NEW profiles (e.g., 'NEW-2')",
+    )
+    deletions: list[ProfileDeletionDirective] = Field(
+        default=[],
+        description=(
+            "NEW profiles that are pure deletion directives (the user asked to "
+            "forget/remove a stored fact). Both the NEW and matched EXISTING "
+            "profiles are removed; no merged replacement is written."
+        ),
     )
 
     model_config = ConfigDict(
@@ -340,13 +379,14 @@ class ProfileDeduplicator(BaseDeduplicator):
             logger.error("Failed to identify duplicates: %s", str(e))
             return new_profiles, [], []
 
-        if not dedup_output.duplicate_groups:
-            logger.info("No duplicate profiles found for request %s", request_id)
+        if not dedup_output.duplicate_groups and not dedup_output.deletions:
+            logger.info("No duplicate or deletion actions for request %s", request_id)
             return new_profiles, [], []
 
         logger.info(
-            "Found %d duplicate profile groups for request %s",
+            "Found %d duplicate profile groups and %d deletion directives for request %s",
             len(dedup_output.duplicate_groups),
+            len(dedup_output.deletions),
             request_id,
         )
 
@@ -388,6 +428,19 @@ class ProfileDeduplicator(BaseDeduplicator):
 
         now_ts = int(datetime.now(UTC).timestamp())
 
+        # Process deletion directives first. A directive is a NEW profile that
+        # is a meta-request to forget an EXISTING profile. Both the NEW and the
+        # matched EXISTING profile(s) are removed with no merged replacement.
+        self._apply_deletion_directives(
+            dedup_output.deletions,
+            new_profiles=new_profiles,
+            existing_profiles=existing_profiles,
+            handled_new_indices=handled_new_indices,
+            existing_ids_to_delete=existing_ids_to_delete,
+            seen_delete_ids=seen_delete_ids,
+            superseded_profiles=superseded_profiles,
+        )
+
         # Process duplicate groups
         for group in dedup_output.duplicate_groups:
             group_new_indices: list[int] = []
@@ -406,12 +459,13 @@ class ProfileDeduplicator(BaseDeduplicator):
 
             # Collect existing profile IDs to delete and their profiles for changelog (deduplicated)
             for eidx in group_existing_indices:
-                if 0 <= eidx < len(existing_profiles):
-                    pid = existing_profiles[eidx].profile_id
-                    if pid and pid not in seen_delete_ids:
-                        seen_delete_ids.add(pid)
-                        existing_ids_to_delete.append(pid)
-                        superseded_profiles.append(existing_profiles[eidx])
+                self._mark_existing_for_deletion(
+                    f"EXISTING-{eidx}",
+                    existing_profiles,
+                    existing_ids_to_delete,
+                    seen_delete_ids,
+                    superseded_profiles,
+                )
 
             # Get template from first NEW profile in group (for metadata)
             template_profile: UserProfile | None = None
@@ -483,6 +537,90 @@ class ProfileDeduplicator(BaseDeduplicator):
                 result_profiles.append(profile)
 
         return result_profiles, existing_ids_to_delete, superseded_profiles
+
+    def _apply_deletion_directives(
+        self,
+        directives: list[ProfileDeletionDirective],
+        *,
+        new_profiles: list[UserProfile],
+        existing_profiles: list[UserProfile],
+        handled_new_indices: set[int],
+        existing_ids_to_delete: list[str],
+        seen_delete_ids: set[str],
+        superseded_profiles: list[UserProfile],
+    ) -> None:
+        """
+        Apply deletion directives in place: consume the NEW profile and mark matched
+        EXISTING profile(s) for deletion without producing a merged replacement.
+
+        A directive is a NEW profile whose content is a meta-request to forget an
+        EXISTING profile (e.g. "Requested removal of interest in X from stored
+        profiles"). The NEW is suppressed from the result set and the matched
+        EXISTING rows are added to the deletion list.
+
+        Args:
+            directives: Deletion directives from the LLM.
+            new_profiles: Flat list of NEW profiles (indexed by NEW-N id).
+            existing_profiles: List of EXISTING profiles (indexed by EXISTING-M id).
+            handled_new_indices: Set of NEW indices already accounted for; this
+                method adds the consumed directive indices to it.
+            existing_ids_to_delete: Output list of profile IDs to delete; this
+                method appends to it.
+            seen_delete_ids: Set used to deduplicate IDs across all deletion paths.
+            superseded_profiles: Output list of deleted profile objects for the
+                changelog; this method appends to it.
+        """
+        for directive in directives:
+            self._consume_new_index(
+                directive.new_id, len(new_profiles), handled_new_indices
+            )
+            for eid in directive.existing_ids:
+                self._mark_existing_for_deletion(
+                    eid,
+                    existing_profiles,
+                    existing_ids_to_delete,
+                    seen_delete_ids,
+                    superseded_profiles,
+                )
+            logger.info(
+                "Profile deletion directive %s -> delete %s: %s",
+                directive.new_id,
+                directive.existing_ids,
+                directive.reasoning,
+            )
+
+    @staticmethod
+    def _consume_new_index(
+        new_id: str, new_profile_count: int, handled_new_indices: set[int]
+    ) -> None:
+        """Mark a NEW-N id as handled so the safety fallback does not re-add it."""
+        parsed = parse_item_id(new_id)
+        if parsed is None:
+            return
+        prefix, idx = parsed
+        if prefix == "NEW" and 0 <= idx < new_profile_count:
+            handled_new_indices.add(idx)
+
+    @staticmethod
+    def _mark_existing_for_deletion(
+        existing_id: str,
+        existing_profiles: list[UserProfile],
+        existing_ids_to_delete: list[str],
+        seen_delete_ids: set[str],
+        superseded_profiles: list[UserProfile],
+    ) -> None:
+        """Resolve an EXISTING-N id to a profile_id and queue it for deletion."""
+        parsed = parse_item_id(existing_id)
+        if parsed is None:
+            return
+        prefix, idx = parsed
+        if prefix != "EXISTING" or not (0 <= idx < len(existing_profiles)):
+            return
+        pid = existing_profiles[idx].profile_id
+        if pid and pid not in seen_delete_ids:
+            seen_delete_ids.add(pid)
+            existing_ids_to_delete.append(pid)
+            superseded_profiles.append(existing_profiles[idx])
 
     def _merge_custom_features(self, profiles: list[UserProfile]) -> dict | None:
         """

@@ -32,6 +32,7 @@ from reflexio.server.services.deduplication_utils import parse_item_id
 from reflexio.server.services.profile.profile_deduplicator import (
     ProfileDeduplicationOutput,
     ProfileDeduplicator,
+    ProfileDeletionDirective,
     ProfileDuplicateGroup,
     _format_profile_timestamp,
 )
@@ -167,6 +168,56 @@ class TestPydanticModels:
         output = ProfileDeduplicationOutput()
         assert output.duplicate_groups == []
         assert output.unique_ids == []
+        assert output.deletions == []
+
+    def test_deletion_directive_creation(self):
+        """Test that ProfileDeletionDirective can be created with valid data."""
+        directive = ProfileDeletionDirective(
+            new_id="NEW-0",
+            existing_ids=["EXISTING-0", "EXISTING-1"],
+            reasoning="User asked to forget this topic",
+        )
+        assert directive.new_id == "NEW-0"
+        assert directive.existing_ids == ["EXISTING-0", "EXISTING-1"]
+        assert directive.reasoning == "User asked to forget this topic"
+
+    def test_deletion_directive_json_schema_forbids_extra(self):
+        """Test that ProfileDeletionDirective's JSON schema forbids additional properties."""
+        schema = ProfileDeletionDirective.model_json_schema()
+        assert schema.get("additionalProperties") is False
+
+    def test_deduplication_output_with_deletions(self):
+        """Test that ProfileDeduplicationOutput accepts deletions."""
+        output = ProfileDeduplicationOutput(
+            duplicate_groups=[],
+            unique_ids=[],
+            deletions=[
+                ProfileDeletionDirective(
+                    new_id="NEW-0",
+                    existing_ids=["EXISTING-0"],
+                    reasoning="deletion request",
+                )
+            ],
+        )
+        assert len(output.deletions) == 1
+        assert output.deletions[0].new_id == "NEW-0"
+
+    def test_deduplication_output_deletions_from_dict(self):
+        """Test that ProfileDeduplicationOutput with deletions validates from dict."""
+        data = {
+            "duplicate_groups": [],
+            "unique_ids": [],
+            "deletions": [
+                {
+                    "new_id": "NEW-0",
+                    "existing_ids": ["EXISTING-0"],
+                    "reasoning": "forget request",
+                }
+            ],
+        }
+        output = ProfileDeduplicationOutput.model_validate(data)
+        assert len(output.deletions) == 1
+        assert output.deletions[0].existing_ids == ["EXISTING-0"]
 
     def test_deduplication_output_from_dict(self):
         """Test that ProfileDeduplicationOutput can be validated from dict."""
@@ -719,6 +770,120 @@ class TestBuildDeduplicatedResults:
         assert len(superseded) == 1
         assert superseded[0].profile_id == "existing_1"
 
+    def test_build_deduplicated_results_handles_deletion_directive(
+        self,
+        mock_request_context,
+        mock_llm_client,
+        mock_site_var_manager,
+        sample_profiles,
+    ):
+        """A deletion directive erases the EXISTING profile without writing a replacement.
+
+        This is the core bug fix: "forget that I am interested in X" used to
+        produce a merged "Previously interested in X, but requested removal"
+        profile. With the deletion channel, the NEW directive is consumed and
+        the EXISTING profile is deleted outright.
+        """
+        timestamp = int(datetime.now(UTC).timestamp())
+        existing_profile = UserProfile(
+            profile_id="existing_old_interest",
+            user_id="test_user",
+            content="User is interested in self-improving agents",
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="old_req",
+        )
+
+        dedup_output = ProfileDeduplicationOutput(
+            duplicate_groups=[],
+            unique_ids=["NEW-1", "NEW-2"],
+            deletions=[
+                ProfileDeletionDirective(
+                    new_id="NEW-0",
+                    existing_ids=["EXISTING-0"],
+                    reasoning=(
+                        "NEW-0 is a meta-request to forget EXISTING-0; "
+                        "not a fact about the user."
+                    ),
+                )
+            ],
+        )
+
+        deduplicator = ProfileDeduplicator(
+            request_context=mock_request_context,
+            llm_client=mock_llm_client,
+        )
+        result_profiles, delete_ids, superseded = (
+            deduplicator._build_deduplicated_results(
+                new_profiles=sample_profiles,
+                existing_profiles=[existing_profile],
+                dedup_output=dedup_output,
+                user_id="test_user",
+                request_id="test_request",
+            )
+        )
+
+        # EXISTING profile is marked for deletion.
+        assert delete_ids == ["existing_old_interest"]
+        assert len(superseded) == 1
+        assert superseded[0].profile_id == "existing_old_interest"
+
+        # NEW-0 (the directive) was consumed — not re-added by the safety fallback.
+        assert all(p.content != sample_profiles[0].content for p in result_profiles), (
+            "Deletion directive NEW profile should not appear in result_profiles"
+        )
+
+        # Only NEW-1 and NEW-2 (the unrelated unique profiles) remain.
+        assert len(result_profiles) == 2
+        assert {p.content for p in result_profiles} == {
+            sample_profiles[1].content,
+            sample_profiles[2].content,
+        }
+
+    def test_build_deduplicated_results_deletion_directive_no_match(
+        self,
+        mock_request_context,
+        mock_llm_client,
+        mock_site_var_manager,
+        sample_profiles,
+    ):
+        """A deletion directive with empty existing_ids still consumes the NEW.
+
+        If the LLM emits a deletion directive but matches no EXISTING profile,
+        the NEW profile must still be suppressed — a meta-statement like
+        "Requested removal of X" is not a fact worth storing on its own.
+        """
+        dedup_output = ProfileDeduplicationOutput(
+            duplicate_groups=[],
+            unique_ids=["NEW-1", "NEW-2"],
+            deletions=[
+                ProfileDeletionDirective(
+                    new_id="NEW-0",
+                    existing_ids=[],
+                    reasoning="No matching existing profile found.",
+                )
+            ],
+        )
+
+        deduplicator = ProfileDeduplicator(
+            request_context=mock_request_context,
+            llm_client=mock_llm_client,
+        )
+        result_profiles, delete_ids, superseded = (
+            deduplicator._build_deduplicated_results(
+                new_profiles=sample_profiles,
+                existing_profiles=[],
+                dedup_output=dedup_output,
+                user_id="test_user",
+                request_id="test_request",
+            )
+        )
+
+        assert delete_ids == []
+        assert superseded == []
+        # NEW-0 must not survive into result_profiles.
+        assert all(p.content != sample_profiles[0].content for p in result_profiles)
+        assert len(result_profiles) == 2
+
 
 # ===============================
 # Test: Deduplicate Main Method
@@ -888,6 +1053,74 @@ class TestDeduplicate:
         assert len(delete_ids) == 1
         assert delete_ids[0] == "existing_1"
         assert len(superseded) == 1
+
+    def test_deduplicate_applies_deletions_when_no_duplicate_groups(
+        self,
+        mock_request_context,
+        mock_llm_client,
+        mock_site_var_manager,
+        sample_profiles,
+    ):
+        """A deletion-only LLM response must still erase the EXISTING profile.
+
+        Regression guard: the public `deduplicate()` used to short-circuit when
+        `duplicate_groups` was empty, which silently dropped deletion directives
+        and returned the 'Requested removal of ...' NEW profile as a new fact —
+        the exact zombie-profile failure the deletion channel was meant to fix.
+        """
+        timestamp = int(datetime.now(UTC).timestamp())
+        existing_profile = UserProfile(
+            profile_id="existing_forgettable",
+            user_id="test_user",
+            content="User is interested in self-improving agents",
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="old_req",
+        )
+        directive_profile = UserProfile(
+            profile_id=str(uuid.uuid4()),
+            user_id="test_user",
+            content=(
+                "Requested removal of interest in self-improving agents "
+                "from stored profiles"
+            ),
+            last_modified_timestamp=timestamp,
+            generated_from_request_id="req_directive",
+            profile_time_to_live=ProfileTimeToLive.ONE_DAY,
+            source="extractor_a",
+        )
+
+        mock_request_context.storage.search_user_profile.return_value = [
+            existing_profile
+        ]
+        mock_llm_client.generate_chat_response.return_value = (
+            ProfileDeduplicationOutput(
+                duplicate_groups=[],
+                unique_ids=[],
+                deletions=[
+                    ProfileDeletionDirective(
+                        new_id="NEW-0",
+                        existing_ids=["EXISTING-0"],
+                        reasoning="Meta-request to forget EXISTING-0.",
+                    )
+                ],
+            )
+        )
+
+        deduplicator = ProfileDeduplicator(
+            request_context=mock_request_context,
+            llm_client=mock_llm_client,
+        )
+        profiles, delete_ids, superseded = deduplicator.deduplicate(
+            new_profiles=[directive_profile],
+            user_id="test_user",
+            request_id="test_request",
+        )
+
+        assert delete_ids == ["existing_forgettable"]
+        assert len(superseded) == 1
+        assert superseded[0].profile_id == "existing_forgettable"
+        # The directive must be consumed — not leak back as a stored fact.
+        assert profiles == []
 
 
 # ===============================
